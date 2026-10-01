@@ -23,6 +23,7 @@ from .config import ROOT, Settings
 from .llm import ClaudeJSON, JSONModel, load_prompt
 from .member_prices import MemberPriceSource, apply_member_prices
 from .models import StockLine
+from .publish import publish
 from .runner import JobContext, run_job
 
 log = logging.getLogger(__name__)
@@ -448,10 +449,12 @@ def body(ctx: JobContext) -> None:
     ctx.summary.update(pack_markdown=str(md_path), pack_pdf=str(pdf_path), scripts=len(scripts))
     db = ctx.db()
     if db is None:
-        log.info("Dry run: pack written to %s; nothing posted or logged to content_log", out_dir)
+        log.info("Dry run: pack written to %s; nothing published or logged to content_log", out_dir)
         return
     save_content_log(db, plan, scripts)
-    ctx.summary["slack"] = slack.post_pack(settings, plan, [md_path, pdf_path])
+    ctx.summary["published"] = publish(
+        settings, md_path.read_text(encoding="utf-8"), slack.pack_summary(plan), [md_path, pdf_path]
+    )
 
 
 def add_args(parser) -> None:

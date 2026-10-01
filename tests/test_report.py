@@ -176,7 +176,7 @@ def job(settings, seeded, monkeypatch):
     data["outputs"]["report_dir"] = str(tmp / "reports")
     s = Settings(data=data, source=settings.source, env={"DATABASE_URL": url})
     posted = []
-    monkeypatch.setattr("evo_tiktok.slack.post_message_with_files", lambda *a, **k: posted.append(a) or {"posted": True})
+    monkeypatch.setattr("evo_tiktok.report.publish", lambda *a, **k: posted.append(a) or {"published": True})
     methods = []
     real_send = httpx.Client.send
     monkeypatch.setattr(httpx.Client, "send", lambda self, req, **kw: methods.append(req.method) or real_send(self, req, **kw))
@@ -205,7 +205,7 @@ def test_live_run_saves_metrics_and_awaits_approval(job):
     assert db.query("SELECT views FROM content_log WHERE tiktok_post_id = 'H0'") == [(100,)]
     assert db.query("SELECT boost_post_id, boost_status FROM weekly_report") == [("P1", "awaiting approval")]
     db.close()
-    assert len(posted) == 1 and posted[0][1].rstrip().endswith("— approve?*")
+    assert len(posted) == 1 and posted[0][1].rstrip().endswith("— approve?")  # the full report goes to the Doc
     assert all(m == "GET" for m in methods)  # no spend changes: nothing but reads
 
 
@@ -215,7 +215,7 @@ def test_narrative_that_sets_spend_is_dropped_but_report_still_goes(job):
     assert report.main(argv, llm=FakeLLM(bad, bad), settings=s) == 0
     md = (tmp / "reports" / "2026-10-09" / "weekly_report.md").read_text()
     assert "£50/day" not in md and "Narrative dropped" in md and "£10/day" in md
-    assert "£50/day" not in posted[0][1] and len(posted[0][2]) == 2  # report and feed attached
+    assert "£50/day" not in posted[0][1] and "£50/day" not in posted[0][2]
 
 
 def test_windsor_client_only_reads(settings):

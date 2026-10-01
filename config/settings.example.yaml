@@ -137,6 +137,8 @@ member_prices:
   source: luke_api     # pending: Luke is providing the members portal API
 
 outputs:
+  destination: google_doc     # google_doc | slack | none
+  google_doc_id: null         # or set GOOGLE_DOC_ID; share the Doc with the service account
   slack_channel: "#evo-tiktok"
   slack_channel_id: null      # needed to upload the PDF pack; find it in Slack channel details
   pack_dir: out/packs

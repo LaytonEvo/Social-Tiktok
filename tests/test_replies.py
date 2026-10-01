@@ -191,7 +191,7 @@ def job(settings, tmp_path, monkeypatch, db_with_post):
     data["outputs"]["reply_dir"] = str(tmp_path / "replies")
     s = Settings(data=data, source=settings.source, env={"DATABASE_URL": url})
     posted = []
-    monkeypatch.setattr("evo_tiktok.slack.post_message_with_files", lambda *a, **k: posted.append(a) or {"posted": True})
+    monkeypatch.setattr("evo_tiktok.replies.publish", lambda *a, **k: posted.append(a) or {"published": True})
     # Record every HTTP request: nothing may go to TikTok (or anywhere) in these runs.
     hosts = []
     real_send = httpx.Client.send
@@ -225,7 +225,7 @@ def test_live_run_queues_once_and_posts_nothing_to_tiktok(job):
     q = _queue(url)
     assert len(q) == 7
     assert ("c5", "spam", "hide", 0) in q
-    assert len(posted) == 1 and "complaint" in posted[0][1]
+    assert len(posted) == 1 and "## Complaints for Karin (1)" in posted[0][1] and "@angry1" in posted[0][1]
     assert not any("tiktok" in h for h in hosts)
     assert _run(s) == 0  # the same comments again: nothing new to draft
     assert len(_queue(url)) == 7 and len(posted) == 1
