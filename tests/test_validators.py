@@ -121,3 +121,17 @@ def test_require_raises_with_errors():
     with pytest.raises(GuardrailError) as exc:
         require(["bad"])
     assert exc.value.errors == ["bad"]
+
+
+def test_settings_brands_are_strings(settings):
+    assert "TRUE" in settings.restricted_brands
+
+
+def test_unquoted_yaml_brand_is_rejected(settings):
+    import yaml
+
+    from evo_tiktok.config import ConfigError, Settings
+
+    data = dict(settings.data, restricted_brands=yaml.safe_load("[adidas, TRUE]"))
+    with pytest.raises(ConfigError):
+        Settings(data=data, source=settings.source).restricted_brands

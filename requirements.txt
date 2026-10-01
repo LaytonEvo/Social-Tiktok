@@ -2,3 +2,5 @@
 httpx>=0.27
 PyYAML>=6.0
 psycopg[binary]>=3.2
+anthropic>=1.11
+fpdf2>=2.8

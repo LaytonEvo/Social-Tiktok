@@ -129,3 +129,21 @@ def stock_check(skus: Iterable[str], stock: Mapping[str, StockLine]) -> list[str
         elif line.units_total <= 0:
             errors.append(f"SKU {sku} has zero stock")
     return errors
+
+
+def no_price_check(text: str) -> list[str]:
+    """Fail if the text carries any price or discount (trolley content has no clearance pricing)."""
+    found = [m.group() for m in PRICE_RE.finditer(text)]
+    return [f"Price or discount '{p}' not allowed here: {text!r}" for p in found]
+
+
+AI_MEDIA_RE = re.compile(
+    r"\bAI[- ](?:generated|video|voice(?:over)?|avatar|narrat\w*)\b|\btext[- ]to[- ]speech\b|\bTTS\b"
+    r"|\b(?:synthetic|generated|robot) voice\b",
+    re.IGNORECASE,
+)
+
+
+def real_footage_check(text: str) -> list[str]:
+    """Fail if a script asks for AI video, AI voiceover or text-to-speech."""
+    return [f"Real footage and voices only, found '{m.group()}'" for m in AI_MEDIA_RE.finditer(text)]

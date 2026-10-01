@@ -61,7 +61,12 @@ class Settings:
 
     @property
     def restricted_brands(self) -> list[str]:
-        return list(self.data.get("restricted_brands", []))
+        brands = list(self.data.get("restricted_brands", []))
+        bad = [b for b in brands if not isinstance(b, str)]
+        if bad:
+            # e.g. a bare TRUE in YAML is read as a boolean, so the brand check would skip it
+            raise ConfigError(f"restricted_brands must be quoted strings; got {bad!r}")
+        return brands
 
     @property
     def brand_price_window(self) -> int:

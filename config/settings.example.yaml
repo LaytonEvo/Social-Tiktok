@@ -22,13 +22,31 @@ weekly_mix:            # 7 scripts
   giveaway: 1
   trolley: 1
 
+mix_weighting:         # once 2+ weeks of metrics exist, weight formats by avg watch time
+  min_weeks: 2
+  min_per_format: 1
+  fixed: [giveaway]    # formats whose count never changes
+
+roulette:
+  min_pairs: 3
+  no_repeat_weeks: 3
+
+giveaway:
+  sku: null            # pin a prize SKU; otherwise the highest-RRP featured line
+  closes_after_days: 6 # Sunday of the filming week
+
+llm:
+  refusal_fallback: true   # server-side fallback if a safety classifier declines
+  effort: {}               # per job, e.g. {scripts: medium}
+  max_featured_products: 60
+
 restricted_brands:     # no brand + price together; update after account decisions
   - adidas
   - Nike
   - Under Armour
   - Mizuno
   - Payntr
-  - TRUE
+  - "TRUE"           # quoted: YAML reads bare TRUE as a boolean
   - Ecco
   - PXG
 
@@ -75,4 +93,6 @@ member_prices:
 
 outputs:
   slack_channel: "#evo-tiktok"
+  slack_channel_id: null      # needed to upload the PDF pack; find it in Slack channel details
+  pack_dir: out/packs
   reply_queue: google_sheet   # or evotasks

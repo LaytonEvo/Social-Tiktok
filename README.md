@@ -41,3 +41,17 @@ Every run appends to `logs/runs.jsonl`; live runs also write a `run_log` row.
 - `evo_tiktok/member_prices.py`: placeholder for Luke's members portal API.
 - `evo_tiktok/stock.py`: the stock snapshot job. `evo_tiktok/runner.py` handles shared CLI flags, the UK-hour guard and the run log.
 - `migrations/`: database schema. `deploy/railway/`: cron service config.
+
+## Script generator (M1)
+
+```bash
+# Dry run: real Claude call, pack written to out/packs/<week>/, nothing posted or logged
+python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.jsonl
+```
+
+- `evo_tiktok/scripts.py`: plans the mix (watch-time weighting after 2 weeks of metrics), picks Size Roulette
+  sizes (3+ pairs, no repeat within 3 weeks) and the giveaway prize, calls Claude, validates every script and
+  retries once with the errors before failing the run.
+- `evo_tiktok/llm.py`: loads `prompts/*.md` and calls Claude with a JSON schema. The model comes from `models.scripts`.
+- `evo_tiktok/pack.py` and `evo_tiktok/slack.py`: the Markdown and PDF pack, and the Slack post (live runs only).
+- Live runs add 7 `content_log` rows with `status=planned`. Re-running the same week replaces them.

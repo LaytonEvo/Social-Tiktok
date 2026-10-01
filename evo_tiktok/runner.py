@@ -35,6 +35,7 @@ class JobContext:
     dry_run: bool
     args: argparse.Namespace
     summary: dict[str, Any] = field(default_factory=dict)
+    llm: Any = None  # injected model client for tests; jobs build their own otherwise
     _db: Database | None = None
 
     def db(self) -> Database | None:
@@ -43,6 +44,16 @@ class JobContext:
             return None
         if self._db is None:
             self._db = Database(self.settings.secret("DATABASE_URL"))
+        return self._db
+
+    def read_db(self) -> Database | None:
+        """The database for reads (history, snapshots), in live and dry runs alike.
+        None when no DATABASE_URL is set. Never write through this."""
+        if self._db is None:
+            url = self.settings.secret("DATABASE_URL", required=False)
+            if not url:
+                return None
+            self._db = Database(url)
         return self._db
 
 

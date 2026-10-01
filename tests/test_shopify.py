@@ -25,7 +25,7 @@ def test_exclusions_and_fixes(settings):
     polo = skus["POLO-M"]
     assert polo.cost_estimated and polo.unit_cost == Decimal("18.62")  # 35 / 1.88
     assert not skus["POLO-NORRP"].has_rrp
-    assert stats["cost_estimated"] == 1 and stats["no_rrp"] == 1
+    assert stats["cost_estimated"] == 1 and stats["no_rrp"] == 3  # POLO-NORRP and two trolley lines
 
 
 def test_bulk_export_flow(settings):

@@ -53,8 +53,8 @@ def test_live_run_saves_snapshot_and_run_log(db_settings):
     featured = {r[0] for r in db.query("SELECT sku FROM stock_snapshot WHERE featured = 1")}
     db.close()
     # Core-size non-live footwear and last-season polos with an RRP, active and in stock.
-    assert featured == {"SHOE-9", "POLO-M", "JKT-L"}
-    assert count(url, "stock_snapshot") == 8  # 11 variants, 2 excluded, OOS-9 has no stock
+    assert featured == {"SHOE-9", "SHOE-10", "POLO-M", "JKT-L"}
+    assert count(url, "stock_snapshot") == 11  # 14 variants, 2 excluded, OOS-9 has no stock
     assert count(url, "run_log") == 1
 
 
