@@ -57,3 +57,43 @@ def test_bulk_export_flow(settings):
     out = list(client.export_variants_jsonl())
     assert len(out) == len(records())
     assert calls[0] == "mutation run" and calls.count("query poll") == 2
+
+
+def _settings(settings, **env):
+    return Settings(data=settings.data, source=settings.source, env={"SHOPIFY_STORE": "evo.myshopify.com", **env})
+
+
+def test_dev_dashboard_app_swaps_client_credentials_for_a_token(settings):
+    seen = []
+
+    def handler(request: httpx.Request):
+        seen.append(request)
+        if request.url.path == "/admin/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "tok123", "scope": "read_products,read_inventory",
+                                             "expires_in": 86399})
+        return httpx.Response(200, json={"data": {}})
+
+    s = _settings(settings, SHOPIFY_CLIENT_ID="cid", SHOPIFY_CLIENT_SECRET="csecret")
+    client = ShopifyClient(s, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    token_req = seen[0]
+    assert token_req.method == "POST" and token_req.url.host == "evo.myshopify.com"
+    assert b"grant_type=client_credentials" in token_req.content and b"client_id=cid" in token_req.content
+    assert client.http.headers["X-Shopify-Access-Token"] == "tok123"
+
+
+def test_legacy_admin_token_still_works(settings):
+    client = ShopifyClient(_settings(settings, SHOPIFY_ADMIN_TOKEN="shpat_x"),
+                           http=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))))
+    assert client.http.headers["X-Shopify-Access-Token"] == "shpat_x"
+
+
+def test_clear_errors_for_bad_or_missing_credentials(settings):
+    import pytest
+
+    from evo_tiktok.shopify import ShopifyError
+
+    refuse = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(400, text="invalid_client")))
+    with pytest.raises(ShopifyError, match="refused the client ID/secret"):
+        ShopifyClient(_settings(settings, SHOPIFY_CLIENT_ID="a", SHOPIFY_CLIENT_SECRET="b"), http=refuse)
+    with pytest.raises(ShopifyError, match="SHOPIFY_CLIENT_ID"):
+        ShopifyClient(_settings(settings), http=refuse)

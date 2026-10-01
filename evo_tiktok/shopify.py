@@ -1,7 +1,7 @@
 """Read-only Shopify stock export via a bulk operation.
 
 The catalogue has 10,000+ variants, so we use ``bulkOperationRunQuery`` and
-download the JSONL result rather than paging. The token needs only
+download the JSONL result rather than paging. The app needs only
 ``read_products`` and ``read_inventory``. Nothing here writes to the store.
 """
 
@@ -74,6 +74,35 @@ class ShopifyError(RuntimeError):
     pass
 
 
+def access_token(settings: Settings, store: str, http: httpx.Client) -> str:
+    """An Admin API access token.
+
+    Apps made in Shopify's Dev Dashboard (the only kind you can create now) give
+    a client ID and secret; we swap them for a token with the client credentials
+    grant. Tokens last 24 hours, so every run asks for a fresh one. A legacy
+    admin-created app's ``shpat_`` token in SHOPIFY_ADMIN_TOKEN also works.
+    """
+    client_id = settings.secret("SHOPIFY_CLIENT_ID", required=False)
+    client_secret = settings.secret("SHOPIFY_CLIENT_SECRET", required=False)
+    if client_id and client_secret:
+        resp = http.post(
+            f"https://{store}/admin/oauth/access_token",
+            data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret},
+        )
+        if resp.status_code >= 400:
+            raise ShopifyError(
+                f"Shopify refused the client ID/secret ({resp.status_code}): {resp.text[:200]}. "
+                "Check the app is installed on this store and SHOPIFY_STORE is its .myshopify.com address."
+            )
+        body = resp.json()
+        log.info("Shopify token issued, scopes: %s", body.get("scope"))
+        return body["access_token"]
+    token = settings.secret("SHOPIFY_ADMIN_TOKEN", required=False)
+    if token:
+        return token
+    raise ShopifyError("Set SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET (Dev Dashboard app), or SHOPIFY_ADMIN_TOKEN")
+
+
 class ShopifyClient:
     def __init__(
         self,
@@ -86,10 +115,9 @@ class ShopifyClient:
         self.endpoint = f"https://{store}/admin/api/{version}/graphql.json"
         self.poll_seconds = float(settings["shopify"].get("bulk_poll_seconds", 5))
         self.timeout_seconds = float(settings["shopify"].get("bulk_timeout_seconds", 900))
-        self.http = http or httpx.Client(
-            headers={"X-Shopify-Access-Token": settings.secret("SHOPIFY_ADMIN_TOKEN")},
-            timeout=60,
-        )
+        self.http = http or httpx.Client(timeout=60)
+        if "X-Shopify-Access-Token" not in self.http.headers:
+            self.http.headers["X-Shopify-Access-Token"] = access_token(settings, store, self.http)
         # The result file is a signed URL on Shopify's storage: no token sent.
         self.download_http = download_http or httpx.Client(timeout=300)
 

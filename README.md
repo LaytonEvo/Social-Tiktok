@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest
 # Offline dry run against the test fixture (no Shopify, no database):
 python -m evo_tiktok.stock --dry-run --from-jsonl tests/fixtures/shopify_bulk.jsonl
-# Live: set SHOPIFY_STORE, SHOPIFY_ADMIN_TOKEN and DATABASE_URL, then
+# Live: set SHOPIFY_STORE, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET and DATABASE_URL, then
 python -m evo_tiktok.migrate
 python -m evo_tiktok.stock
 ```
