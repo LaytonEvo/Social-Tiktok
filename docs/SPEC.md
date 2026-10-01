@@ -157,7 +157,7 @@ See `config/settings.example.yaml` and `config/.env.example`. Secrets go in the 
 4. Can a TikTok business account read its own comments via API? (spike) **Desk research done:** yes in principle, via the API for Business Accounts API, pending approval. See `docs/spikes/tiktok-comments.md`.
 5. Can Metricool auto-publish TikTok posts on our plan? (spike) **Desk research done:** yes on the Advanced plan, but our jobs won't publish; useful for analytics. See `docs/spikes/metricool.md`.
 6. Which brands are restricted after the account decisions? (update settings)
-7. Report destination: Slack, Evolution Golf Dashboard or morning briefing?
+7. Report destination: Slack, Evolution Golf Dashboard or morning briefing? **Decided: one shared Google Doc for all three jobs (newest first); Slack stays available as a setting.**
 
 ## 9. Out of scope
 

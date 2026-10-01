@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from . import metrics, validators
 from .config import ROOT, Settings
 from .llm import ClaudeJSON, JSONModel, LLMError, load_prompt
+from .publish import publish
 from .runner import JobContext, run_job
 from .scripts import FORMAT_NAMES
 
@@ -452,8 +453,6 @@ def save(db, a: Analysis, report_md: str) -> None:
 
 
 def body(ctx: JobContext) -> None:
-    from . import slack
-
     settings = ctx.settings
     cfg = settings["report"]
     tz = ZoneInfo(settings["timezone"])
@@ -476,10 +475,10 @@ def body(ctx: JobContext) -> None:
     )
     write_db = ctx.db()
     if write_db is None:
-        log.info("Dry run: report written to %s; nothing saved or posted", md_path)
+        log.info("Dry run: report written to %s; nothing saved or published", md_path)
         return
     save(write_db, a, report_md)
-    ctx.summary["slack"] = slack.post_message_with_files(settings, slack_text(a, narrative), [md_path, feed_path])
+    ctx.summary["published"] = publish(settings, report_md, slack_text(a, narrative), [md_path, feed_path])
 
 
 def add_args(parser) -> None:

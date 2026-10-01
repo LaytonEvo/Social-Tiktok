@@ -23,6 +23,7 @@ from . import allocation, stock, validators
 from .config import DOCS_DIR, ROOT, Settings
 from .llm import ClaudeJSON, JSONModel, load_prompt
 from .models import StockLine
+from .publish import publish
 from .runner import JobContext, run_job
 
 log = logging.getLogger(__name__)
@@ -427,6 +428,31 @@ def save_queue(db, drafts: list[Draft], queued_at: str) -> None:
     db.commit()
 
 
+def doc_markdown(settings: Settings, drafts: list[Draft], queued_at: str) -> str:
+    """The entry for the shared Google Doc: counts, complaints, and drafts to check."""
+    counts = Counter(d.category for d in drafts)
+    flagged = [d for d in drafts if d.needs_human_check and d.category != "complaint"]
+    complaints = [d for d in drafts if d.category == "complaint"]
+    out = [
+        f"# Reply drafts: {queued_at}",
+        f"**{len(drafts)} new comment(s):** " + ", ".join(f"{n} {c}" for c, n in counts.most_common()) + ".",
+        f"**{len(flagged) + len(complaints)} need a person to check before posting.** "
+        "Replies are never posted automatically.",
+    ]
+    if complaints:
+        out.append(f"## Complaints for Karin ({len(complaints)})")
+        out += [f"- **@{d.comment.author}:** “{d.comment.text}”" for d in complaints]
+    if flagged:
+        out.append("## Drafts to check")
+        out += [
+            f"- **@{d.comment.author}:** “{d.comment.text}” → {d.reply or '(no draft)'} ({d.reason})" for d in flagged
+        ]
+    sheet_id = settings["outputs"].get("reply_sheet_id")
+    if sheet_id:
+        out.append(f"All drafts are in the Reply queue tab: https://docs.google.com/spreadsheets/d/{sheet_id}")
+    return "\n".join(out) + "\n"
+
+
 def slack_text(settings: Settings, drafts: list[Draft]) -> str:
     counts = Counter(d.category for d in drafts)
     flagged = sum(d.needs_human_check for d in drafts)
@@ -444,8 +470,6 @@ def slack_text(settings: Settings, drafts: list[Draft]) -> str:
 
 
 def body(ctx: JobContext) -> None:
-    from . import slack
-
     settings = ctx.settings
     comments = load_comments(ctx)
     db = ctx.read_db()
@@ -470,7 +494,7 @@ def body(ctx: JobContext) -> None:
     )
     write_db = ctx.db()
     if write_db is None:
-        log.info("Dry run: queue written to %s; nothing saved, sent to the sheet or posted to Slack", out)
+        log.info("Dry run: queue written to %s; nothing saved, sent to the sheet or published", out)
         return
     save_queue(write_db, drafts, datetime.now(timezone.utc).isoformat())
     sheet_id = settings["outputs"].get("reply_sheet_id")
@@ -478,7 +502,7 @@ def body(ctx: JobContext) -> None:
         from .gsheets import Sheets
 
         ctx.summary["sheet_rows"] = Sheets(settings).append(sheet_id, settings["replies"]["queue_range"], rows)
-    ctx.summary["slack"] = slack.post_message_with_files(settings, slack_text(settings, drafts), [out])
+    ctx.summary["published"] = publish(settings, doc_markdown(settings, drafts, queued_at), slack_text(settings, drafts), [out])
 
 
 def add_args(parser) -> None:

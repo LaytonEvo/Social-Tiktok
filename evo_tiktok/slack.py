@@ -56,7 +56,7 @@ def post_message_with_files(
     return result
 
 
-def post_pack(settings: Settings, plan, files: list[Path], http: httpx.Client | None = None) -> dict:
+def pack_summary(plan) -> str:
     from .scripts import FORMAT_NAMES
 
     lines = [
@@ -68,4 +68,4 @@ def post_pack(settings: Settings, plan, files: list[Path], http: httpx.Client | 
     if plan.giveaway:
         lines.append(f"Giveaway prize: {plan.giveaway.product_title}, closes {plan.giveaway_close:%-d %B}")
     lines += [f"_{n}_" for n in plan.notes]
-    return post_message_with_files(settings, "\n".join(lines), files, http)
+    return "\n".join(lines)

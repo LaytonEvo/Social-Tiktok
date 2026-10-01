@@ -1,14 +1,16 @@
 # Railway cron services
 
-One Railway service per job, all from this repo, sharing one Postgres database.
-Point each service's config-as-code path at its file here.
+Railway project **evo-tiktok-ops** (Europe West): one service per job, all built from
+this repo's `main` branch, sharing one Postgres database. Railway has retired
+config-as-code files, so each service's start command, cron schedule and restart
+policy (`NEVER`) are set on the service itself:
 
-| Service | Config file | UK time | Railway cron (UTC) |
+| Service | Start command | UK time | Railway cron (UTC) |
 | --- | --- | --- | --- |
-| stock | `deploy/railway/stock.json` | 06:00 daily | `0 5,6 * * *` |
-| scripts | `deploy/railway/scripts.json` | 07:00 Monday | `0 6,7 * * 1` |
-| replies | `deploy/railway/replies.json` | 08:00 daily | `0 7,8 * * *` |
-| report | `deploy/railway/report.json` | 15:00 Friday | `0 14,15 * * 5` |
+| stock | `python -m evo_tiktok.migrate && python -m evo_tiktok.stock` | 06:00 daily | `0 5,6 * * *` |
+| scripts | `python -m evo_tiktok.migrate && python -m evo_tiktok.scripts` | 07:00 Monday | `0 6,7 * * 1` |
+| replies | `python -m evo_tiktok.migrate && python -m evo_tiktok.replies` | 08:00 daily | `0 7,8 * * *` |
+| report | `python -m evo_tiktok.migrate && python -m evo_tiktok.report` | 15:00 Friday | `0 14,15 * * 5` |
 
 Railway cron runs in UTC and the UK moves between GMT and BST, so each service
 fires at both candidate UTC hours. With `EVO_SCHEDULED=1` set on the service,
@@ -23,9 +25,8 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
   `SHOPIFY_STORE` and `SHOPIFY_ADMIN_TOKEN` (scopes `read_products` and
   `read_inventory` only). `MEMBER_PRICES_API_URL` and `MEMBER_PRICES_API_TOKEN`
   are added when Luke's members API is ready. The scripts job also needs
-  `ANTHROPIC_API_KEY` and `SLACK_BOT_TOKEN` (scopes `chat:write` and
-  `files:write`; invite the bot to #evo-tiktok and set `outputs.slack_channel_id`
-  so the PDF can be attached).
+  `ANTHROPIC_API_KEY`. All jobs publish to the shared Google Doc, so they also need
+  `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DOC_ID` (see "Shared Google Doc" below).
 - `config/settings.yaml` isn't committed. Until it is provided on the host, jobs
   fall back to `config/settings.example.yaml` and log a warning. To use a file
   elsewhere, set `EVO_SETTINGS` to its path.
@@ -40,7 +41,7 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
    JSON key into `GOOGLE_SERVICE_ACCOUNT_JSON`, and share the sheet with the
    service account's email as Editor.
 4. Set `outputs.reply_sheet_id` (from the sheet URL) and
-   `outputs.complaint_alert_slack_user_id` (Karin's Slack member ID).
+   the sheet ID in `outputs.reply_sheet_id`.
 
 Drafts are appended to `Reply queue`. Karin edits and posts each reply in the
 TikTok app herself. After posting a video, link it to its script so replies can
@@ -61,4 +62,12 @@ python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL
 - Members: `members.source: manual` means passing `--new-members`, `--member-orders` and
   `--member-revenue`. `shopify` counts customers and orders matching the searches in settings.
 - The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
-  approves in Slack and someone sets the spend in TikTok Ads Manager by hand.
+  approves (reply in the Doc or in person) and someone sets the spend in TikTok Ads Manager by hand.
+
+## Shared Google Doc
+
+1. Create a Google Doc, e.g. "Evo TikTok: weekly packs, replies and reports".
+2. Share it with the service account's email (the `client_email` in its JSON key) as Editor.
+3. Put the Doc ID (the long part of its URL between `/d/` and `/edit`) in `GOOGLE_DOC_ID`.
+
+Each run adds its entry at the top, so the newest pack, reply summary or report is always first.

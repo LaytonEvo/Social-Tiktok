@@ -243,7 +243,7 @@ def job(settings, tmp_path, monkeypatch):
     data["outputs"]["pack_dir"] = str(tmp_path / "packs")
     s = Settings(data=data, source=settings.source, env={"DATABASE_URL": url})
     posted = []
-    monkeypatch.setattr("evo_tiktok.slack.post_pack", lambda *a, **k: posted.append(a) or {"posted": True})
+    monkeypatch.setattr("evo_tiktok.scripts.publish", lambda *a, **k: posted.append(a) or {"published": True})
     return s, url, tmp_path, posted
 
 

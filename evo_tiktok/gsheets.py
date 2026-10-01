@@ -27,16 +27,18 @@ def _service_account_info(raw: str) -> dict:
     return json.loads(Path(raw).read_text(encoding="utf-8"))
 
 
+def authorized_session(settings: Settings, scopes: list[str]):
+    """An HTTP session signed in as the service account (Sheets and Docs share it)."""
+    from google.auth.transport.requests import AuthorizedSession
+    from google.oauth2 import service_account
+
+    info = _service_account_info(settings.secret("GOOGLE_SERVICE_ACCOUNT_JSON"))
+    return AuthorizedSession(service_account.Credentials.from_service_account_info(info, scopes=scopes))
+
+
 class Sheets:
     def __init__(self, settings: Settings, session=None):
-        if session is None:
-            from google.auth.transport.requests import AuthorizedSession
-            from google.oauth2 import service_account
-
-            info = _service_account_info(settings.secret("GOOGLE_SERVICE_ACCOUNT_JSON"))
-            creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-            session = AuthorizedSession(creds)
-        self.session = session
+        self.session = session or authorized_session(settings, SCOPES)
 
     def _check(self, resp):
         if resp.status_code >= 400:

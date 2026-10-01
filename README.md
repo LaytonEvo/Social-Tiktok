@@ -53,7 +53,7 @@ python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.
   sizes (3+ pairs, no repeat within 3 weeks) and the giveaway prize, calls Claude, validates every script and
   retries once with the errors before failing the run.
 - `evo_tiktok/llm.py`: loads `prompts/*.md` and calls Claude with a JSON schema. The model comes from `models.scripts`.
-- `evo_tiktok/pack.py` and `evo_tiktok/slack.py`: the Markdown and PDF pack, and the Slack post (live runs only).
+- `evo_tiktok/pack.py`: the Markdown and PDF pack. Live runs add the pack to the shared Google Doc (`evo_tiktok/publish.py`).
 - Live runs add 7 `content_log` rows with `status=planned`. Re-running the same week replaces them.
 
 ## Reply drafter (M2)
@@ -64,12 +64,12 @@ python -m evo_tiktok.replies --dry-run --from-csv tests/fixtures/comments.csv --
 
 - Reads new comments from the `Inbox` tab of the reply sheet (or `--from-csv`) and skips any already queued.
 - Spam and complaints are caught by fixed patterns as well as the model. Spam gets no draft and is marked `hide`.
-  Complaints get the holding reply from settings, are always flagged, and Karin is @-mentioned in Slack.
+  Complaints get the holding reply from settings, are always flagged, and are listed for Karin at the top of the day's Doc entry.
 - Price questions get the fixed line from `docs/CONTENT_RULES.md`. Other drafts come from Claude
   (`models.replies`) using stock facts from the morning snapshot only, then pass the same guardrails plus a
   stock-consistency check. A draft that fails twice is left blank and flagged rather than failing the run.
 - Output: `out/replies/*.csv` always; live runs add `reply_queue` rows, append to the `Reply queue` tab and post
-  a Slack summary. There is no TikTok write code anywhere in the project.
+  a summary to the shared Google Doc. There is no TikTok write code anywhere in the project.
 - `python -m evo_tiktok.posts` links a posted video to its script (see `deploy/railway/README.md`).
 
 ## Weekly reporter (M3)
@@ -85,5 +85,12 @@ python -m evo_tiktok.report --dry-run --organic-csv week.csv --paid-csv ads.csv 
   beat the median on both watch time and shares. The numbers table and the boost line are computed in code; Claude
   (`models.report`) writes the narrative and may not state a budget or ask for approval itself.
 - Output: `out/reports/<date>/weekly_report.md` and `feed.json` (dashboard feed). Live runs save metrics to
-  `content_log`, store the report in `weekly_report` with the boost "awaiting approval", and post a short Slack
-  summary with the report attached. No code changes ad spend.
+  `content_log`, store the report in `weekly_report` with the boost "awaiting approval", and add the report to the shared Google
+  Doc. No code changes ad spend.
+
+## Where the output goes
+
+All three jobs write to one shared Google Doc, newest entry at the top: Monday's filming pack, each day's reply
+summary (complaints and drafts to check, with a link to the Reply queue sheet) and Friday's report with the boost
+line. Set `GOOGLE_DOC_ID` (or `outputs.google_doc_id`) and share the Doc with the service account as Editor.
+`outputs.destination: slack` switches back to Slack; `none` publishes nothing.
