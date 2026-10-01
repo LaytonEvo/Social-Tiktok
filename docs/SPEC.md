@@ -151,8 +151,8 @@ See `config/settings.example.yaml` and `config/.env.example`. Secrets go in the 
 
 ## 8. Open questions (resolve in M0–M2)
 
-1. Railway cron or n8n?
-2. Where do member prices live?
+1. ~~Railway cron or n8n?~~ **Decided: Railway cron** (see `deploy/railway/`).
+2. Where do member prices live? **Luke is providing an API** for the members portal; `evo_tiktok/member_prices.py` is ready for it.
 3. Reply queue: Google Sheet or EvoTasks?
 4. Can a TikTok business account read its own comments via API? (spike)
 5. Can Metricool auto-publish TikTok posts on our plan? (spike)

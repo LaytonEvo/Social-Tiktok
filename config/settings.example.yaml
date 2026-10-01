@@ -8,7 +8,10 @@ models:
   replies: claude-haiku-4-5-20251001
   report: claude-sonnet-5-5
 
-schedule:
+schedule:              # UK local time. Railway cron runs in UTC, so each
+                       # service fires at both UTC hours and the job skips
+                       # the run that isn't this local hour (see deploy/railway).
+  stock: "0 6 * * *"
   scripts: "0 7 * * MON"
   replies: "0 8 * * *"
   report: "0 15 * * FRI"
@@ -34,6 +37,25 @@ price_claims:
   up_to_threshold_share: 0.30   # share of featured lines that must hit the max discount
   brand_price_window_chars: 40
 
+seasons:               # Shopify tag -> age. Untagged lines are Aged.
+  live: [AW26, SS27, Carryover]
+  last_season: [SS26]
+  aged: [SS25, AW25]
+
+routing:               # Members-routed lines = the TikTok featured pool (SPEC section 6)
+  footwear_core_not_live: true
+  last_season_categories: [Shirts/Polos, Legwear]
+  # Outerwear and mid-layers that aren't Live, core sizes only, are split
+  # with competition stock. This is the Members share of units. Confirm.
+  outerwear_midlayer_members_share: 0.6
+  exclude_junior: true
+
+shopify:
+  api_version: "2025-10"
+  bulk_poll_seconds: 5
+  bulk_timeout_seconds: 900
+  estimated_cost_divisor: 1.88   # unit cost estimate when Shopify has none
+
 core_sizes:
   footwear_uk: [8, 8.5, 9, 9.5, 10, 10.5]
   apparel: [M, L, XL]
@@ -47,6 +69,9 @@ pilot_gate:
   weeks_in_a_row: 3
   max_filming_hours_per_week: 3
   max_cost_per_member_gbp: 3
+
+member_prices:
+  source: luke_api     # pending: Luke is providing the members portal API
 
 outputs:
   slack_channel: "#evo-tiktok"

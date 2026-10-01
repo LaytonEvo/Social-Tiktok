@@ -16,3 +16,28 @@ The handover pack for building Evolution Golf's TikTok content jobs with Claude 
 - `prompts/`: starter prompts for the three jobs.
 - `config/`: example settings and environment variables.
 - `data/evo_clearance_allocation.xlsx`: the 1 October 2026 stock allocation and routing rules to port.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+# Offline dry run against the test fixture (no Shopify, no database):
+python -m evo_tiktok.stock --dry-run --from-jsonl tests/fixtures/shopify_bulk.jsonl
+# Live: set SHOPIFY_STORE, SHOPIFY_ADMIN_TOKEN and DATABASE_URL, then
+python -m evo_tiktok.migrate
+python -m evo_tiktok.stock
+```
+
+`DATABASE_URL` accepts `postgresql://...` (Railway) or `sqlite:///path.db` (local).
+Every run appends to `logs/runs.jsonl`; live runs also write a `run_log` row.
+
+## Layout (M0)
+
+- `evo_tiktok/config.py`: settings (`config/settings.yaml`, else the example) and secrets from the environment.
+- `evo_tiktok/shopify.py`: read-only bulk export of all variants, with exclusions, cost estimates and RRP checks.
+- `evo_tiktok/allocation.py`: categoriser, age, size band, Members routing and the featured pool.
+- `evo_tiktok/validators.py`: the guardrail checks from SPEC section 5.
+- `evo_tiktok/member_prices.py`: placeholder for Luke's members portal API.
+- `evo_tiktok/stock.py`: the stock snapshot job. `evo_tiktok/runner.py` handles shared CLI flags, the UK-hour guard and the run log.
+- `migrations/`: database schema. `deploy/railway/`: cron service config.

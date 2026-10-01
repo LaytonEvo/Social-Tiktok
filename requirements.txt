@@ -1,0 +1,4 @@
+# Runtime dependencies for Railway. Keep in step with pyproject.toml.
+httpx>=0.27
+PyYAML>=6.0
+psycopg[binary]>=3.2
