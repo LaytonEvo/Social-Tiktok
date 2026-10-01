@@ -8,7 +8,10 @@ models:
   replies: claude-haiku-4-5-20251001
   report: claude-sonnet-5-5
 
-schedule:
+schedule:              # UK local time. Railway cron runs in UTC, so each
+                       # service fires at both UTC hours and the job skips
+                       # the run that isn't this local hour (see deploy/railway).
+  stock: "0 6 * * *"
   scripts: "0 7 * * MON"
   replies: "0 8 * * *"
   report: "0 15 * * FRI"
@@ -19,13 +22,76 @@ weekly_mix:            # 7 scripts
   giveaway: 1
   trolley: 1
 
+mix_weighting:         # once 2+ weeks of metrics exist, weight formats by avg watch time
+  min_weeks: 2
+  min_per_format: 1
+  fixed: [giveaway]    # formats whose count never changes
+
+roulette:
+  min_pairs: 3
+  no_repeat_weeks: 3
+
+giveaway:
+  sku: null            # pin a prize SKU; otherwise the highest-RRP featured line
+  closes_after_days: 6 # Sunday of the filming week
+
+llm:
+  refusal_fallback: [scripts, report]  # jobs that use the server-side refusal fallback;
+                                       # not replies: Haiku 4.5 doesn't support it
+  effort: {}               # per job, e.g. {scripts: medium}
+  max_featured_products: 60
+
+replies:
+  max_chars: 150
+  complaint_holding_reply: "Thanks for telling us, and sorry about this. We'll DM you now to put it right."
+  competitors: []                # names replies must never mention
+  inbox_range: "Inbox!A:F"       # Karin pastes comments here (header row first)
+  queue_range: "Reply queue!A:K" # drafts are appended here
+
+report:
+  window_days: 7               # Friday report covers the 7 days to today
+  median_weeks: 4
+  min_history_posts: 5         # fewer than this and medians use this week's posts
+  include_unlinked_posts: false
+  organic_source: csv          # csv (--organic-csv) | windsor; metricool if the Advanced plan is bought
+  paid_source: windsor         # windsor | csv (--paid-csv) | none
+  boost:
+    daily_gbp: 10
+    days: 3
+  windsor:
+    # No TikTok accounts were connected on Windsor when this was written. Once they
+    # are, confirm these field names with Windsor's field list and edit them here.
+    organic_connector: tiktok_organic
+    organic_fields:
+      post_id: video_id
+      views: video_views
+      avg_watch_seconds: average_time_watched
+      completion_rate: full_video_watched_rate
+      shares: shares
+      comments: comments
+      follows: new_followers
+      profile_visits: profile_views
+      link_clicks: null
+    paid_connector: tiktok
+    paid_fields:
+      post_id: tiktok_item_id
+      ad_name: ad_name
+      spend: spend
+      impressions: impressions
+      results: conversions
+
+members:
+  source: manual               # manual (--new-members) | shopify; Luke's portal API may replace both
+  customer_query: "tag:member" # Shopify customer search for members joined in the week
+  order_query: "tag:member"    # Shopify order search for member orders
+
 restricted_brands:     # no brand + price together; update after account decisions
   - adidas
   - Nike
   - Under Armour
   - Mizuno
   - Payntr
-  - TRUE
+  - "TRUE"           # quoted: YAML reads bare TRUE as a boolean
   - Ecco
   - PXG
 
@@ -33,6 +99,25 @@ price_claims:
   default_claim: "40–50% off for members"
   up_to_threshold_share: 0.30   # share of featured lines that must hit the max discount
   brand_price_window_chars: 40
+
+seasons:               # Shopify tag -> age. Untagged lines are Aged.
+  live: [AW26, SS27, Carryover]
+  last_season: [SS26]
+  aged: [SS25, AW25]
+
+routing:               # Members-routed lines = the TikTok featured pool (SPEC section 6)
+  footwear_core_not_live: true
+  last_season_categories: [Shirts/Polos, Legwear]
+  # Outerwear and mid-layers that aren't Live, core sizes only, are split
+  # with competition stock. This is the Members share of units. Confirm.
+  outerwear_midlayer_members_share: 0.6
+  exclude_junior: true
+
+shopify:
+  api_version: "2025-10"
+  bulk_poll_seconds: 5
+  bulk_timeout_seconds: 900
+  estimated_cost_divisor: 1.88   # unit cost estimate when Shopify has none
 
 core_sizes:
   footwear_uk: [8, 8.5, 9, 9.5, 10, 10.5]
@@ -48,6 +133,15 @@ pilot_gate:
   max_filming_hours_per_week: 3
   max_cost_per_member_gbp: 3
 
+member_prices:
+  source: luke_api     # pending: Luke is providing the members portal API
+
 outputs:
   slack_channel: "#evo-tiktok"
+  slack_channel_id: null      # needed to upload the PDF pack; find it in Slack channel details
+  pack_dir: out/packs
+  reply_dir: out/replies
+  report_dir: out/reports
+  reply_sheet_id: null              # Google Sheet with the Inbox and Reply queue tabs
+  complaint_alert_slack_user_id: null  # Karin's Slack member ID, to @-mention on complaints
   reply_queue: google_sheet   # or evotasks
