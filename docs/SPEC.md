@@ -154,8 +154,8 @@ See `config/settings.example.yaml` and `config/.env.example`. Secrets go in the 
 1. ~~Railway cron or n8n?~~ **Decided: Railway cron** (see `deploy/railway/`).
 2. Where do member prices live? **Luke is providing an API** for the members portal; `evo_tiktok/member_prices.py` is ready for it.
 3. Reply queue: Google Sheet or EvoTasks?
-4. Can a TikTok business account read its own comments via API? (spike)
-5. Can Metricool auto-publish TikTok posts on our plan? (spike)
+4. Can a TikTok business account read its own comments via API? (spike) **Desk research done:** yes in principle, via the API for Business Accounts API, pending approval. See `docs/spikes/tiktok-comments.md`.
+5. Can Metricool auto-publish TikTok posts on our plan? (spike) **Desk research done:** yes on the Advanced plan, but our jobs won't publish; useful for analytics. See `docs/spikes/metricool.md`.
 6. Which brands are restricted after the account decisions? (update settings)
 7. Report destination: Slack, Evolution Golf Dashboard or morning briefing?
 
