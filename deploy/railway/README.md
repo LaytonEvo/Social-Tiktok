@@ -26,7 +26,8 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
   `read_inventory` only). `MEMBER_PRICES_API_URL` and `MEMBER_PRICES_API_TOKEN`
   are added when Luke's members API is ready. The scripts job also needs
   `ANTHROPIC_API_KEY`. All jobs publish to the shared Google Doc, so they also need
-  `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DOC_ID` (see "Shared Google Doc" below).
+  the Google sign-in (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+  `GOOGLE_OAUTH_REFRESH_TOKEN`) and `GOOGLE_DOC_ID` (see "Google sign-in" below).
 - `config/settings.yaml` isn't committed. Until it is provided on the host, jobs
   fall back to `config/settings.example.yaml` and log a warning. To use a file
   elsewhere, set `EVO_SETTINGS` to its path.
@@ -37,9 +38,7 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
 2. `Inbox` row 1 headers: `Comment ID, Video link, Username, Comment, Date`
    (other common export headers such as `video_id` or `text` also work). Karin
    pastes new comments below; rows already drafted are skipped automatically.
-3. Create a Google Cloud service account, enable the Sheets API, download its
-   JSON key into `GOOGLE_SERVICE_ACCOUNT_JSON`, and share the sheet with the
-   service account's email as Editor.
+3. Make sure the Google account used for the sign-in below can edit the sheet.
 4. Set `outputs.reply_sheet_id` (from the sheet URL) and
    the sheet ID in `outputs.reply_sheet_id`.
 
@@ -64,10 +63,41 @@ python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL
 - The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
   approves (reply in the Doc or in person) and someone sets the spend in TikTok Ads Manager by hand.
 
+## Google sign-in (Doc and reply sheet)
+
+The jobs sign in to Google as a normal user (e.g. online@evolutiongolf.co.uk)
+who clicks "Allow" once. This avoids service-account keys, which the
+organisation blocks by default. Edits in the Doc show as made by that user.
+
+1. **Turn on the APIs.** In console.cloud.google.com, with your project selected:
+   APIs & Services → Library → enable **Google Docs API** and **Google Sheets API**.
+2. **Consent screen.** Google Auth Platform (or APIs & Services → OAuth consent
+   screen) → Get started. App name "Evo TikTok jobs", your support email,
+   Audience **Internal**, contact email → Create. Internal keeps it to your
+   Workspace and means the sign-in doesn't expire after 7 days.
+3. **OAuth client.** Clients (or Credentials) → Create client → Application type
+   **Web application**, name "Evo TikTok jobs". Under Authorised redirect URIs add
+   `https://developers.google.com/oauthplayground` → Create. Copy the **Client ID**
+   and **Client secret**.
+4. **Get the refresh token.** Open https://developers.google.com/oauthplayground →
+   gear icon (top right) → tick **Use your own OAuth credentials** → paste the
+   Client ID and secret → Close. In the left panel, in "Input your own scopes", paste
+   `https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/spreadsheets`
+   → **Authorize APIs** → sign in as the account that owns the Doc → Allow.
+   Then **Exchange authorization code for tokens** and copy the **Refresh token**.
+5. **Railway.** Add `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+   `GOOGLE_OAUTH_REFRESH_TOKEN` and `GOOGLE_DOC_ID` as shared variables.
+
+If the sign-in is ever revoked (the user is removed, or access is revoked in their
+Google account settings), repeat step 4 and update the refresh token.
+
 ## Shared Google Doc
 
-1. Create a Google Doc, e.g. "Evo TikTok: weekly packs, replies and reports".
-2. Share it with the service account's email (the `client_email` in its JSON key) as Editor.
-3. Put the Doc ID (the long part of its URL between `/d/` and `/edit`) in `GOOGLE_DOC_ID`.
+1. Create a Google Doc, e.g. "Evo TikTok: packs, replies and reports", owned by or
+   shared (Editor) with the account used for the sign-in above.
+2. Put the Doc ID (the long part of its URL between `/d/` and `/edit`) in `GOOGLE_DOC_ID`.
 
 Each run adds its entry at the top, so the newest pack, reply summary or report is always first.
+
+A service-account JSON key in `GOOGLE_SERVICE_ACCOUNT_JSON` also works, if your
+organisation allows keys; share the Doc with its `client_email` instead.

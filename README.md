@@ -92,5 +92,5 @@ python -m evo_tiktok.report --dry-run --organic-csv week.csv --paid-csv ads.csv 
 
 All three jobs write to one shared Google Doc, newest entry at the top: Monday's filming pack, each day's reply
 summary (complaints and drafts to check, with a link to the Reply queue sheet) and Friday's report with the boost
-line. Set `GOOGLE_DOC_ID` (or `outputs.google_doc_id`) and share the Doc with the service account as Editor.
+line. Set `GOOGLE_DOC_ID` (or `outputs.google_doc_id`) and the Google sign-in described in `deploy/railway/README.md`.
 `outputs.destination: slack` switches back to Slack; `none` publishes nothing.

@@ -79,3 +79,25 @@ def test_publish_routes_by_destination(settings, monkeypatch):
     assert publish.publish(Settings(data, settings.source, env={}), "# hi")["published"] is False
     data["outputs"]["destination"] = "none"
     assert publish.publish(Settings(data, settings.source, env={}), "# hi")["published"] is False
+
+
+def test_google_sign_in_prefers_oauth_user(settings):
+    from evo_tiktok.gsheets import authorized_session
+
+    env = {"GOOGLE_OAUTH_CLIENT_ID": "id.apps.googleusercontent.com", "GOOGLE_OAUTH_CLIENT_SECRET": "secret",
+           "GOOGLE_OAUTH_REFRESH_TOKEN": "1//refresh"}
+    session = authorized_session(Settings(settings.data, settings.source, env=env), gdoc.SCOPES)
+    creds = session.credentials
+    assert creds.refresh_token == "1//refresh" and creds.client_id == env["GOOGLE_OAUTH_CLIENT_ID"]
+    assert creds.token_uri == "https://oauth2.googleapis.com/token"
+
+
+def test_google_sign_in_errors_are_clear(settings):
+    from evo_tiktok.config import ConfigError
+    from evo_tiktok.gsheets import authorized_session
+
+    with pytest.raises(ConfigError, match="missing GOOGLE_OAUTH_REFRESH_TOKEN"):
+        authorized_session(Settings(settings.data, settings.source,
+                                    env={"GOOGLE_OAUTH_CLIENT_ID": "a", "GOOGLE_OAUTH_CLIENT_SECRET": "b"}), [])
+    with pytest.raises(ConfigError, match="No Google sign-in"):
+        authorized_session(Settings(settings.data, settings.source, env={}), [])
