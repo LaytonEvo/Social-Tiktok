@@ -22,8 +22,8 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
 - `EVO_SCHEDULED=1`
 - `DATABASE_URL` as a reference to the Postgres service
 - The secrets the job needs from `config/.env.example`. The stock job needs
-  `SHOPIFY_STORE` and `SHOPIFY_ADMIN_TOKEN` (scopes `read_products` and
-  `read_inventory` only). `MEMBER_PRICES_API_URL` and `MEMBER_PRICES_API_TOKEN`
+  `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` (see "Shopify app"
+  below). `MEMBER_PRICES_API_URL` and `MEMBER_PRICES_API_TOKEN`
   are added when Luke's members API is ready. The scripts job also needs
   `ANTHROPIC_API_KEY`. All jobs publish to the shared Google Doc, so they also need
   the Google sign-in (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
@@ -101,3 +101,22 @@ Each run adds its entry at the top, so the newest pack, reply summary or report 
 
 A service-account JSON key in `GOOGLE_SERVICE_ACCOUNT_JSON` also works, if your
 organisation allows keys; share the Doc with its `client_email` instead.
+
+## Shopify app
+
+Shopify no longer lets you create apps in the admin ("Develop apps" is legacy).
+Create one in the Dev Dashboard instead:
+
+1. Shopify admin → Settings → Apps → **Develop apps** → **Build apps in Dev Dashboard**
+   (or go straight to dev.shopify.com). Create an app, e.g. "Evo TikTok jobs".
+2. In the app's version settings, set the access scopes to `read_products` and
+   `read_inventory` only, then release the version.
+3. Install the app on the evolutiongolf store.
+4. App settings → copy the **Client ID** and **Client secret** into
+   `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`. `SHOPIFY_STORE` is the store's
+   `xxxx.myshopify.com` address.
+
+Each run swaps the ID and secret for a 24-hour access token (client credentials
+grant), so nothing needs refreshing by hand. The app and the store must be in the
+same Shopify organisation. A legacy admin-created app's `shpat_` token in
+`SHOPIFY_ADMIN_TOKEN` also works.
