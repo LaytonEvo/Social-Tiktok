@@ -63,7 +63,8 @@ class ClaudeJSON:
 
         self.model = settings["models"][job]
         self.effort = (settings.get("llm") or {}).get("effort", {}).get(job)
-        self.fallback = (settings.get("llm") or {}).get("refusal_fallback", True)
+        # Jobs whose model supports the server-side refusal fallback (settings, not code).
+        self.fallback = job in ((settings.get("llm") or {}).get("refusal_fallback") or [])
         self.client = client or anthropic.Anthropic(api_key=settings.secret("ANTHROPIC_API_KEY"))
 
     def complete_json(self, system: str, messages: list[dict], schema: dict, max_tokens: int = 16000):

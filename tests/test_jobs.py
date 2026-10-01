@@ -86,3 +86,25 @@ def test_scheduled_run_outside_uk_hour_is_skipped(db_settings, monkeypatch):
     monkeypatch.setattr(runner, "local_hour_matches", lambda *a, **k: False)
     assert run_stock(settings, "--scheduled") == 0
     assert count(url, "stock_snapshot") == 0
+
+
+def test_saved_snapshot_round_trips(db_settings):
+    settings, url, _ = db_settings
+    assert run_stock(settings) == 0
+    db = Database(url)
+    lines = {l.sku: l for l in stock.load_latest_snapshot(db)}
+    db.close()
+    shoe = lines["SHOE-9"]
+    assert shoe.units_by_location == {"Warehouse": 3, "Burley Golf Club": 1}
+    assert shoe.members_units == 4 and shoe.category == "Footwear" and shoe.has_rrp
+    assert "OOS-9" not in lines  # only lines with stock are saved
+
+
+def test_stale_snapshot_is_ignored(db_settings):
+    settings, url, _ = db_settings
+    assert run_stock(settings) == 0
+    db = Database(url)
+    db.execute("UPDATE stock_snapshot SET taken_at = '2026-01-01T06:00:00+00:00'")
+    db.commit()
+    assert stock.load_latest_snapshot(db) is None
+    db.close()

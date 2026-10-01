@@ -7,7 +7,7 @@ Point each service's config-as-code path at its file here.
 | --- | --- | --- | --- |
 | stock | `deploy/railway/stock.json` | 06:00 daily | `0 5,6 * * *` |
 | scripts | `deploy/railway/scripts.json` | 07:00 Monday | `0 6,7 * * 1` |
-| replies (M2) | to add | 08:00 daily | `0 7,8 * * *` |
+| replies | `deploy/railway/replies.json` | 08:00 daily | `0 7,8 * * *` |
 | report (M3) | to add | 15:00 Friday | `0 14,15 * * 5` |
 
 Railway cron runs in UTC and the UK moves between GMT and BST, so each service
@@ -29,3 +29,23 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
 - `config/settings.yaml` isn't committed. Until it is provided on the host, jobs
   fall back to `config/settings.example.yaml` and log a warning. To use a file
   elsewhere, set `EVO_SETTINGS` to its path.
+
+## Reply queue sheet (replies job)
+
+1. Create a Google Sheet with two tabs: `Inbox` and `Reply queue`.
+2. `Inbox` row 1 headers: `Comment ID, Video link, Username, Comment, Date`
+   (other common export headers such as `video_id` or `text` also work). Karin
+   pastes new comments below; rows already drafted are skipped automatically.
+3. Create a Google Cloud service account, enable the Sheets API, download its
+   JSON key into `GOOGLE_SERVICE_ACCOUNT_JSON`, and share the sheet with the
+   service account's email as Editor.
+4. Set `outputs.reply_sheet_id` (from the sheet URL) and
+   `outputs.complaint_alert_slack_user_id` (Karin's Slack member ID).
+
+Drafts are appended to `Reply queue`. Karin edits and posts each reply in the
+TikTok app herself. After posting a video, link it to its script so replies can
+check that video's stock:
+
+```bash
+python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL>
+```

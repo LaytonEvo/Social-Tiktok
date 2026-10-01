@@ -104,3 +104,62 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+SNAPSHOT_COLUMNS = (
+    "taken_at", "sku", "variant_id", "product_title", "variant_title", "vendor", "product_type", "status",
+    "category", "season", "age", "size", "size_band", "junior", "price", "compare_at_price", "member_price",
+    "unit_cost", "cost_estimated", "units_warehouse", "units_burley", "members_units", "flags",
+)
+
+
+def load_latest_snapshot(db, max_age_hours: float = 30) -> list[StockLine] | None:
+    """The most recent saved snapshot, or None if there isn't one recent enough."""
+    from decimal import Decimal
+
+    latest = db.query("SELECT snapshot_id, taken_at FROM stock_snapshot ORDER BY taken_at DESC LIMIT 1")
+    if not latest:
+        return None
+    snapshot_id, taken_at = latest[0]
+    taken = taken_at if isinstance(taken_at, datetime) else datetime.fromisoformat(str(taken_at))
+    if taken.tzinfo is None:
+        taken = taken.replace(tzinfo=timezone.utc)
+    age_hours = (datetime.now(timezone.utc) - taken).total_seconds() / 3600
+    if age_hours > max_age_hours:
+        log.warning("Latest stock snapshot is %.0f hours old; not using it", age_hours)
+        return None
+    rows = db.query(f"SELECT {', '.join(SNAPSHOT_COLUMNS)} FROM stock_snapshot WHERE snapshot_id = ?", (snapshot_id,))
+    dec = lambda v: None if v is None else Decimal(str(v))
+    lines = []
+    for r in rows:
+        row = dict(zip(SNAPSHOT_COLUMNS, r))
+        line = StockLine(
+            sku=row["sku"], variant_id=row["variant_id"], product_title=row["product_title"],
+            variant_title=row["variant_title"] or "", vendor=row["vendor"] or "",
+            product_type=row["product_type"] or "", tags=[], status=row["status"] or "",
+            size=row["size"], price=dec(row["price"]), compare_at_price=dec(row["compare_at_price"]),
+            unit_cost=dec(row["unit_cost"]), cost_estimated=bool(row["cost_estimated"]),
+            units_by_location={"Warehouse": row["units_warehouse"] or 0,
+                               "Burley Golf Club": row["units_burley"] or 0},
+            member_price=dec(row["member_price"]),
+        )
+        line.category, line.season, line.age = row["category"], row["season"], row["age"]
+        line.size_band, line.junior = row["size_band"], bool(row["junior"])
+        line.members_units = row["members_units"] or 0
+        line.flags = [f for f in (row["flags"] or "").split("; ") if f]
+        lines.append(line)
+    log.info("Using stock snapshot %s from %s (%d lines)", snapshot_id, taken.isoformat(), len(lines))
+    return lines
+
+
+def current_stock(ctx: JobContext) -> list[StockLine]:
+    """Today's saved snapshot when there is one; otherwise a fresh read from Shopify
+    (or ``--from-jsonl``). Reading never writes."""
+    db = ctx.read_db()
+    if db is not None and not getattr(ctx.args, "from_jsonl", None):
+        lines = load_latest_snapshot(db)
+        if lines is not None:
+            return lines
+    lines, _ = build_snapshot(load_records(ctx), ctx.settings)
+    apply_member_prices(lines, MemberPriceSource(ctx.settings))
+    return lines

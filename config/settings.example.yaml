@@ -36,9 +36,17 @@ giveaway:
   closes_after_days: 6 # Sunday of the filming week
 
 llm:
-  refusal_fallback: true   # server-side fallback if a safety classifier declines
+  refusal_fallback: [scripts, report]  # jobs that use the server-side refusal fallback;
+                                       # not replies: Haiku 4.5 doesn't support it
   effort: {}               # per job, e.g. {scripts: medium}
   max_featured_products: 60
+
+replies:
+  max_chars: 150
+  complaint_holding_reply: "Thanks for telling us, and sorry about this. We'll DM you now to put it right."
+  competitors: []                # names replies must never mention
+  inbox_range: "Inbox!A:F"       # Karin pastes comments here (header row first)
+  queue_range: "Reply queue!A:K" # drafts are appended here
 
 restricted_brands:     # no brand + price together; update after account decisions
   - adidas
@@ -95,4 +103,7 @@ outputs:
   slack_channel: "#evo-tiktok"
   slack_channel_id: null      # needed to upload the PDF pack; find it in Slack channel details
   pack_dir: out/packs
+  reply_dir: out/replies
+  reply_sheet_id: null              # Google Sheet with the Inbox and Reply queue tabs
+  complaint_alert_slack_user_id: null  # Karin's Slack member ID, to @-mention on complaints
   reply_queue: google_sheet   # or evotasks

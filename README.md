@@ -55,3 +55,19 @@ python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.
 - `evo_tiktok/llm.py`: loads `prompts/*.md` and calls Claude with a JSON schema. The model comes from `models.scripts`.
 - `evo_tiktok/pack.py` and `evo_tiktok/slack.py`: the Markdown and PDF pack, and the Slack post (live runs only).
 - Live runs add 7 `content_log` rows with `status=planned`. Re-running the same week replaces them.
+
+## Reply drafter (M2)
+
+```bash
+python -m evo_tiktok.replies --dry-run --from-csv tests/fixtures/comments.csv --from-jsonl tests/fixtures/shopify_bulk.jsonl
+```
+
+- Reads new comments from the `Inbox` tab of the reply sheet (or `--from-csv`) and skips any already queued.
+- Spam and complaints are caught by fixed patterns as well as the model. Spam gets no draft and is marked `hide`.
+  Complaints get the holding reply from settings, are always flagged, and Karin is @-mentioned in Slack.
+- Price questions get the fixed line from `docs/CONTENT_RULES.md`. Other drafts come from Claude
+  (`models.replies`) using stock facts from the morning snapshot only, then pass the same guardrails plus a
+  stock-consistency check. A draft that fails twice is left blank and flagged rather than failing the run.
+- Output: `out/replies/*.csv` always; live runs add `reply_queue` rows, append to the `Reply queue` tab and post
+  a Slack summary. There is no TikTok write code anywhere in the project.
+- `python -m evo_tiktok.posts` links a posted video to its script (see `deploy/railway/README.md`).
