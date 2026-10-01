@@ -8,7 +8,7 @@ Point each service's config-as-code path at its file here.
 | stock | `deploy/railway/stock.json` | 06:00 daily | `0 5,6 * * *` |
 | scripts | `deploy/railway/scripts.json` | 07:00 Monday | `0 6,7 * * 1` |
 | replies | `deploy/railway/replies.json` | 08:00 daily | `0 7,8 * * *` |
-| report (M3) | to add | 15:00 Friday | `0 14,15 * * 5` |
+| report | `deploy/railway/report.json` | 15:00 Friday | `0 14,15 * * 5` |
 
 Railway cron runs in UTC and the UK moves between GMT and BST, so each service
 fires at both candidate UTC hours. With `EVO_SCHEDULED=1` set on the service,
@@ -49,3 +49,16 @@ check that video's stock:
 ```bash
 python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL>
 ```
+
+## Weekly report (report job)
+
+- Organic metrics: until Windsor or Metricool is connected, export per-video stats for the week
+  (TikTok Studio or Metricool) and run the report by hand with `--organic-csv`. Once the TikTok
+  Organic account is connected in Windsor, set `report.organic_source: windsor`, confirm the field
+  names in `report.windsor.organic_fields`, and the Friday cron can run unattended.
+- Paid: `report.paid_source: windsor` needs the TikTok Ads account connected in Windsor and
+  `WINDSOR_API_KEY`. Use `none` or `--paid-csv` until then.
+- Members: `members.source: manual` means passing `--new-members`, `--member-orders` and
+  `--member-revenue`. `shopify` counts customers and orders matching the searches in settings.
+- The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
+  approves in Slack and someone sets the spend in TikTok Ads Manager by hand.

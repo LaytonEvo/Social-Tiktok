@@ -71,3 +71,19 @@ python -m evo_tiktok.replies --dry-run --from-csv tests/fixtures/comments.csv --
 - Output: `out/replies/*.csv` always; live runs add `reply_queue` rows, append to the `Reply queue` tab and post
   a Slack summary. There is no TikTok write code anywhere in the project.
 - `python -m evo_tiktok.posts` links a posted video to its script (see `deploy/railway/README.md`).
+
+## Weekly reporter (M3)
+
+```bash
+python -m evo_tiktok.report --dry-run --organic-csv week.csv --paid-csv ads.csv --new-members 12
+```
+
+- `evo_tiktok/metrics.py`: read-only sources: per-post organic metrics (CSV export or Windsor), TikTok Ads
+  (Windsor or CSV) and members (manual or Shopify searches).
+- `evo_tiktok/report.py`: ranks the week's linked posts and formats against the 4-week organic median, works out
+  cost per result and per new member, tracks the pilot gate, and picks at most one boost candidate. A candidate must
+  beat the median on both watch time and shares. The numbers table and the boost line are computed in code; Claude
+  (`models.report`) writes the narrative and may not state a budget or ask for approval itself.
+- Output: `out/reports/<date>/weekly_report.md` and `feed.json` (dashboard feed). Live runs save metrics to
+  `content_log`, store the report in `weekly_report` with the boost "awaiting approval", and post a short Slack
+  summary with the report attached. No code changes ad spend.
