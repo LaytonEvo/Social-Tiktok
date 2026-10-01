@@ -1,0 +1,19 @@
+# Secrets and local config
+.env
+config/.env
+config/settings.yaml
+*.secret.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Local outputs
+*.sqlite
+*.db
+out/
+logs/
+.DS_Store

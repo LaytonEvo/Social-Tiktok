@@ -1,0 +1,53 @@
+# Copy to settings.yaml. Non-secret settings only.
+store_domain: evolutiongolf.co.uk
+timezone: Europe/London
+locations: [Warehouse, Burley Golf Club]
+
+models:
+  scripts: claude-sonnet-5-5
+  replies: claude-haiku-4-5-20251001
+  report: claude-sonnet-5-5
+
+schedule:
+  scripts: "0 7 * * MON"
+  replies: "0 8 * * *"
+  report: "0 15 * * FRI"
+
+weekly_mix:            # 7 scripts
+  value_comparison: 3
+  size_roulette: 2
+  giveaway: 1
+  trolley: 1
+
+restricted_brands:     # no brand + price together; update after account decisions
+  - adidas
+  - Nike
+  - Under Armour
+  - Mizuno
+  - Payntr
+  - TRUE
+  - Ecco
+  - PXG
+
+price_claims:
+  default_claim: "40–50% off for members"
+  up_to_threshold_share: 0.30   # share of featured lines that must hit the max discount
+  brand_price_window_chars: 40
+
+core_sizes:
+  footwear_uk: [8, 8.5, 9, 9.5, 10, 10.5]
+  apparel: [M, L, XL]
+
+exclusions:
+  product_types: [PPLR_HIDDEN_PRODUCT]
+  titles: ["Item Personalization"]
+
+pilot_gate:
+  format_beats_median_by: 2.0
+  weeks_in_a_row: 3
+  max_filming_hours_per_week: 3
+  max_cost_per_member_gbp: 3
+
+outputs:
+  slack_channel: "#evo-tiktok"
+  reply_queue: google_sheet   # or evotasks
