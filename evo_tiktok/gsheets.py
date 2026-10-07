@@ -82,6 +82,29 @@ class Sheets:
         resp = self.session.get(f"{API}/{sheet_id}/values/{quote(range_)}")
         return self._check(resp).get("values", [])
 
+    def ensure_tab(self, sheet_id: str, title: str) -> int:
+        """The numeric ID of the tab called ``title``, adding the tab if it's missing."""
+        meta = self._check(self.session.get(f"{API}/{sheet_id}", params={"fields": "sheets.properties"}))
+        for sheet in meta.get("sheets", []):
+            if sheet["properties"]["title"] == title:
+                return sheet["properties"]["sheetId"]
+        reply = self.batch_update(sheet_id, [{"addSheet": {"properties": {"title": title}}}])
+        return reply["replies"][0]["addSheet"]["properties"]["sheetId"]
+
+    def batch_update(self, sheet_id: str, requests: list[dict]) -> dict:
+        return self._check(self.session.post(f"{API}/{sheet_id}:batchUpdate", json={"requests": requests}))
+
+    def replace(self, sheet_id: str, tab: str, rows: list[list]) -> None:
+        """Clear the tab and write ``rows`` from A1."""
+        self._check(self.session.post(f"{API}/{sheet_id}/values/{quote(tab)}:clear", json={}))
+        self._check(
+            self.session.put(
+                f"{API}/{sheet_id}/values/{quote(tab + '!A1')}",
+                params={"valueInputOption": "RAW"},
+                json={"values": rows},
+            )
+        )
+
     def append(self, sheet_id: str, range_: str, rows: list[list]) -> int:
         if not rows:
             return 0

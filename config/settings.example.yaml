@@ -137,6 +137,10 @@ pilot_gate:
 member_prices:
   source: luke_api     # pending: Luke is providing the members portal API
 
+dashboard:
+  sheet_id: null              # or set DASHBOARD_SHEET_ID
+  tab: Dashboard              # rewritten after every job run; a portal can read dashboard_snapshot instead
+
 outputs:
   destination: google_doc     # google_doc | slack | none
   google_doc_id: null         # or set GOOGLE_DOC_ID; share the Doc with the service account

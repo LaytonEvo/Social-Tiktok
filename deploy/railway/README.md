@@ -71,6 +71,25 @@ python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL
 - The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
   approves (reply in the Doc or in person) and someone sets the spend in TikTok Ads Manager by hand.
 
+## Ops dashboard (Google Sheet)
+
+Every live job run rebuilds the dashboard and rewrites the "Dashboard" tab: job health,
+stock, members, this week's scripts, the reply queue, the last report's boost and the
+Shopify clean-up counts. A dashboard failure is logged and never fails the job.
+
+1. Signed in as the Google account behind `GOOGLE_OAUTH_REFRESH_TOKEN`, create a Google
+   Sheet (e.g. "Evo TikTok dashboard") and copy its ID from the URL
+   (`docs.google.com/spreadsheets/d/<ID>/edit`).
+2. Railway → project → **Shared Variables** → add `DASHBOARD_SHEET_ID` = that ID, then make
+   sure each job service references it.
+3. Refresh by hand at any time with `python -m evo_tiktok.dashboard`.
+
+Members numbers come live from the portal on services that have `MEMBERS_REPORTING_API_KEY`;
+elsewhere the dashboard shows the last weekly report's numbers.
+
+Moving to a portal later: each refresh also saves the same numbers as JSON in the
+`dashboard_snapshot` table. A portal reads the latest row; the Sheet can then be dropped.
+
 ## Google sign-in (Doc and reply sheet)
 
 The jobs sign in to Google as a normal user (e.g. online@evolutiongolf.co.uk)
