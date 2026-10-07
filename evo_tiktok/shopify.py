@@ -2,7 +2,8 @@
 
 The catalogue has 10,000+ variants, so we use ``bulkOperationRunQuery`` and
 download the JSONL result rather than paging. The app needs only
-``read_products`` and ``read_inventory``. Nothing here writes to the store.
+``read_products``, ``read_inventory`` and ``read_locations`` (for location
+names). Nothing here writes to the store.
 """
 
 from __future__ import annotations
