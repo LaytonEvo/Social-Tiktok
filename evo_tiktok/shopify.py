@@ -70,6 +70,13 @@ query poll($id: ID!) {
 """
 
 
+# The same fields as a normal query on one variant. A bulk operation that hits
+# a field the app can't read just says ACCESS_DENIED; this names the field.
+PROBE_QUERY = BULK_QUERY.replace("productVariants {", "productVariants(first: 1) {").replace(
+    "inventoryLevels {", "inventoryLevels(first: 5) {"
+)
+
+
 class ShopifyError(RuntimeError):
     pass
 
@@ -129,6 +136,18 @@ class ShopifyClient:
             raise ShopifyError(f"GraphQL errors: {body['errors']}")
         return body["data"]
 
+    def _access_detail(self) -> str:
+        """Why the app was refused, from a one-variant run of the same query."""
+        try:
+            resp = self.http.post(self.endpoint, json={"query": PROBE_QUERY})
+            errors = resp.json().get("errors") or []
+        except (httpx.HTTPError, ValueError) as exc:
+            return f" (check query failed: {exc})"
+        if not errors:
+            return " (a normal query of the same fields works, so this is bulk-operation access)"
+        messages = "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errors)
+        return f" ({messages})"
+
     def export_variants_jsonl(self) -> Iterator[dict]:
         """Start the bulk export, wait for it and yield the JSONL records."""
         data = self._graphql(RUN_MUTATION, {"query": BULK_QUERY})["bulkOperationRunQuery"]
@@ -141,7 +160,8 @@ class ShopifyClient:
             if op["status"] == "COMPLETED":
                 break
             if op["status"] in {"FAILED", "CANCELED", "EXPIRED"}:
-                raise ShopifyError(f"Bulk operation {op['status']}: {op.get('errorCode')}")
+                detail = self._access_detail() if op.get("errorCode") == "ACCESS_DENIED" else ""
+                raise ShopifyError(f"Bulk operation {op['status']}: {op.get('errorCode')}{detail}")
             if time.monotonic() > deadline:
                 raise ShopifyError(f"Bulk operation still {op['status']} after {self.timeout_seconds:.0f}s")
             time.sleep(self.poll_seconds)
