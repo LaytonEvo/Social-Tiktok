@@ -2,7 +2,8 @@
 
 The catalogue has 10,000+ variants, so we use ``bulkOperationRunQuery`` and
 download the JSONL result rather than paging. The app needs only
-``read_products`` and ``read_inventory``. Nothing here writes to the store.
+``read_products``, ``read_inventory`` and ``read_locations`` (for location
+names). Nothing here writes to the store.
 """
 
 from __future__ import annotations
@@ -220,7 +221,8 @@ def parse_bulk_records(records: Iterable[dict], settings: Settings) -> tuple[lis
             name = (rec.get("location") or {}).get("name", "Unknown")
             levels.setdefault(parent, {})[name] = levels.get(parent, {}).get(name, 0) + qty
 
-    stats = {"variants": len(variants), "excluded": 0, "no_sku": 0, "cost_estimated": 0, "no_rrp": 0}
+    stats = {"variants": len(variants), "excluded": 0, "no_sku": 0, "cost_estimated": 0, "no_rrp": 0,
+             "duplicate_sku": 0}
     lines: list[StockLine] = []
     for vid, v in variants.items():
         product = v.get("product") or {}
@@ -266,4 +268,29 @@ def parse_bulk_records(records: Iterable[dict], settings: Settings) -> tuple[lis
                 units_by_location=units_by_location,
             )
         )
-    return lines, stats
+    return _dedupe_skus(lines, stats), stats
+
+
+def _dedupe_skus(lines: list[StockLine], stats: dict[str, int]) -> list[StockLine]:
+    """Keep one line per SKU: the copy with the most stock.
+
+    Scripts, validators and the snapshot all key on SKU, but Shopify lets two
+    variants share one. The extra copies are counted and named in the log so
+    they can be fixed in Shopify.
+    """
+    best: dict[str, StockLine] = {}
+    counts: dict[str, int] = {}
+    for line in lines:
+        counts[line.sku] = counts.get(line.sku, 0) + 1
+        kept = best.get(line.sku)
+        if kept is None or line.units_total > kept.units_total:
+            best[line.sku] = line
+    dupes = sorted(sku for sku, n in counts.items() if n > 1)
+    if dupes:
+        stats["duplicate_sku"] = len(lines) - len(best)
+        log.warning(
+            "%d SKUs are on more than one Shopify variant; kept the copy with most stock: %s%s",
+            len(dupes), ", ".join(dupes[:20]), " ..." if len(dupes) > 20 else "",
+        )
+    kept_ids = {id(line) for line in best.values()}
+    return [line for line in lines if id(line) in kept_ids]

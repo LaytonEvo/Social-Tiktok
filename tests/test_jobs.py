@@ -108,3 +108,33 @@ def test_stale_snapshot_is_ignored(db_settings):
     db.commit()
     assert stock.load_latest_snapshot(db) is None
     db.close()
+
+
+def test_failed_db_write_still_records_the_run(db_settings):
+    """Postgres refuses every statement after a failed one until rollback; the run log must still land.
+
+    Runs on SQLite by default; set EVO_TEST_POSTGRES_URL to run it against Postgres too.
+    """
+    import os
+
+    settings, url, _ = db_settings
+    pg = os.environ.get("EVO_TEST_POSTGRES_URL")
+    if pg:
+        db = Database(pg)
+        db.execute("DROP TABLE IF EXISTS run_log")
+        db.execute("DROP TABLE IF EXISTS schema_migrations")
+        db.commit()
+        db.migrate()
+        db.close()
+        url = pg
+        settings = Settings(data=settings.data, source=settings.source, env={"DATABASE_URL": pg})
+
+    def body(ctx):
+        db = ctx.db()
+        db.execute("INSERT INTO run_log (run_id, job, started_at, status) VALUES ('dup', 'x', '2026-01-01', 'ok')")
+        db.execute("INSERT INTO run_log (run_id, job, started_at, status) VALUES ('dup', 'x', '2026-01-01', 'ok')")
+
+    assert runner.run_job("stock", body, [], settings=settings) == 1
+    db = Database(url)
+    assert [r[0] for r in db.query("SELECT status FROM run_log")] == ["failed"]
+    db.close()

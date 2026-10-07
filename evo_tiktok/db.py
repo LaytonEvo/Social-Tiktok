@@ -50,6 +50,9 @@ class Database:
     def commit(self) -> None:
         self.conn.commit()
 
+    def rollback(self) -> None:
+        self.conn.rollback()
+
     def close(self) -> None:
         self.conn.close()
 

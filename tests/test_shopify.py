@@ -118,3 +118,18 @@ def test_access_denied_names_the_blocked_field(settings):
     client = ShopifyClient(s, http=httpx.Client(transport=httpx.MockTransport(api)))
     with pytest.raises(ShopifyError, match="Access denied for unitCost field"):
         list(client.export_variants_jsonl())
+
+
+def test_duplicate_skus_keep_the_copy_with_most_stock(settings):
+    recs = [r for r in records()]
+    variant = next(r for r in recs if r.get("__parentId") is None and (r.get("sku") or "").strip()
+                   and r.get("product", {}).get("productType", "").lower() not in {"personalisation"})
+    twin = json.loads(json.dumps(variant))
+    twin["id"] = variant["id"] + "-twin"
+    twin["inventoryItem"] = {**(twin.get("inventoryItem") or {}), "id": "gid://shopify/InventoryItem/twin"}
+    level = {"__parentId": twin["id"], "location": {"name": "Warehouse"},
+             "quantities": [{"name": "available", "quantity": 999}]}
+    lines, stats = parse_bulk_records(recs + [twin, level], settings)
+    same = [l for l in lines if l.sku == variant["sku"].strip()]
+    assert len(same) == 1 and same[0].variant_id == twin["id"] and same[0].units_total == 999
+    assert stats["duplicate_sku"] == 1

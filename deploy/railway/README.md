@@ -109,8 +109,9 @@ Create one in the Dev Dashboard instead:
 
 1. Shopify admin → Settings → Apps → **Develop apps** → **Build apps in Dev Dashboard**
    (or go straight to dev.shopify.com). Create an app, e.g. "Evo TikTok jobs".
-2. In the app's version settings, set the access scopes to `read_products` and
-   `read_inventory` only, then release the version.
+2. In the app's version settings, set the access scopes to `read_products`,
+   `read_inventory` and `read_locations` only (locations, so stock can be split by
+   warehouse), then release the version.
 3. Install the app on the evolutiongolf store.
 4. App settings → copy the **Client ID** and **Client secret** into
    `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`. `SHOPIFY_STORE` is the store's
