@@ -58,8 +58,12 @@ python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL
   names in `report.windsor.organic_fields`, and the Friday cron can run unattended.
 - Paid: `report.paid_source: windsor` needs the TikTok Ads account connected in Windsor and
   `WINDSOR_API_KEY`. Use `none` or `--paid-csv` until then.
-- Members: `members.source: manual` means passing `--new-members`, `--member-orders` and
-  `--member-revenue`. `shopify` counts customers and orders matching the searches in settings.
+- Members: `members.source: members_api` (the default) reads new paid members, cancellations
+  and the paid total from the members portal (`members.api_url`) and needs
+  `MEMBERS_REPORTING_API_KEY` on the report service. Without the key, or if the portal is down,
+  the report still goes out with a note. `manual` means passing `--new-members`,
+  `--member-orders` and `--member-revenue`; `shopify` counts customers and orders matching the
+  searches in settings.
 - The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
   approves (reply in the Doc or in person) and someone sets the spend in TikTok Ads Manager by hand.
 

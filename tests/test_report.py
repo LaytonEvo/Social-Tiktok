@@ -234,3 +234,62 @@ def test_windsor_client_only_reads(settings):
     assert m.views == 40 and m.shares == 3 and m.avg_watch_seconds == pytest.approx(8.0)
     method, path, params = seen[0]
     assert method == "GET" and path == "/tiktok_organic" and params["date_to"] == "2026-10-09"
+
+
+# ---------------------------------------------------------------- members portal
+
+
+def _portal_day(day, total, started, cancelled):
+    return {"date": day, "totalPaid": total, "byTier": {"club_access": 0, "evolution_pro": 0, "annual_pro": total},
+            "started": started, "cancelled": cancelled,
+            "startedByTier": {"club_access": 0, "evolution_pro": 0, "annual_pro": started},
+            "cancelledByTier": {"club_access": cancelled, "evolution_pro": 0, "annual_pro": 0}}
+
+
+def _portal(settings, days, status=200, seen=None):
+    def handler(request: httpx.Request):
+        if seen is not None:
+            seen.append(request)
+        if status != 200:
+            return httpx.Response(status, json={"error": "nope"})
+        return httpx.Response(200, json={"generatedAt": "2026-10-09T09:00:00.000Z", "days": days})
+
+    s = Settings(data=settings.data, source=settings.source, env={"MEMBERS_REPORTING_API_KEY": "k123"})
+    return s, httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_members_portal_week(settings):
+    from datetime import date
+
+    # Week Sat 3 – Fri 9 Oct, run on Fri 9: the portal stops at Thu 8.
+    days = [_portal_day("2026-10-02", 100, 0, 0)] + [
+        _portal_day(f"2026-10-0{d}", 100 + d - 2, 2, 1) for d in range(3, 9)
+    ]
+    seen = []
+    s, http = _portal(settings, days, seen=seen)
+    m = metrics.load_members_api(s, date(2026, 10, 3), date(2026, 10, 9), http, today=date(2026, 10, 9))
+    req = seen[0]
+    assert req.url.host == "members.evolutiongolf.co.uk" and req.url.path == "/api/reporting/membership-history"
+    assert req.url.params["days"] == "7" and req.headers["Authorization"] == "Bearer k123"
+    assert (m.new_members, m.cancelled, m.paid_at_start, m.paid_at_end) == (12, 6, 100, 106)
+    assert m.cancel_rate == 0.06 and m.covers_to == date(2026, 10, 8)
+    assert m.member_orders is None and m.member_revenue is None
+    line = report.members_line(m)
+    assert "12 new, 6 cancelled, 106 paid in total, 6.0% weekly cancellation rate" in line
+    assert "to 8 October" in line and "orders" not in line
+
+
+def test_members_portal_rebuilds_the_starting_count(settings):
+    from datetime import date
+
+    s, http = _portal(settings, [_portal_day("2026-10-03", 50, 5, 2)])
+    m = metrics.load_members_api(s, date(2026, 10, 3), date(2026, 10, 9), http, today=date(2026, 10, 4))
+    assert m.paid_at_start == 47 and m.cancel_rate == round(2 / 47, 4)
+
+
+def test_members_portal_bad_key_is_a_clear_error(settings):
+    from datetime import date
+
+    s, http = _portal(settings, [], status=401)
+    with pytest.raises(metrics.MembersAPIError, match="MEMBERS_REPORTING_API_KEY"):
+        metrics.load_members_api(s, date(2026, 10, 3), date(2026, 10, 9), http, today=date(2026, 10, 9))
