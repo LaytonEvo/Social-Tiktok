@@ -3,7 +3,8 @@
 - Organic per-post metrics: a CSV export (pilot) or Windsor.ai's TikTok Organic
   connector. Metricool can be added here if the Advanced plan is bought.
 - Paid TikTok Ads: Windsor.ai's TikTok connector, or a CSV export.
-- Members: Shopify (customer and order searches) or numbers typed in by hand.
+- Members: the members portal's reporting API (paid starts and cancellations per
+  day), Shopify (customer and order searches) or numbers typed in by hand.
 
 Everything here only reads. There is no code that changes ad spend.
 """
@@ -14,7 +15,7 @@ import csv
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -51,9 +52,19 @@ class PaidRow:
 @dataclass
 class Members:
     new_members: int
-    member_orders: int
-    member_revenue: Decimal
+    member_orders: int | None
+    member_revenue: Decimal | None
     source: str
+    # From the members portal only
+    cancelled: int | None = None
+    paid_at_start: int | None = None
+    paid_at_end: int | None = None
+    cancel_rate: float | None = None
+    covers_to: date | None = None  # last day counted; the portal stops at yesterday
+
+
+class MembersAPIError(RuntimeError):
+    pass
 
 
 def _num(value, kind=float):
@@ -258,10 +269,15 @@ query members($customers: String!, $orders: String!, $cAfter: String, $oAfter: S
 """
 
 
-def load_members(settings: Settings, args, start: date, end: date, shopify=None) -> Members | None:
+def load_members(settings: Settings, args, start: date, end: date, shopify=None, http=None) -> Members | None:
     if args.new_members is not None:
         return Members(args.new_members, args.member_orders or 0, Decimal(str(args.member_revenue or 0)), "manual")
     cfg = settings["members"]
+    if cfg["source"] == "members_api":
+        if not settings.secret("MEMBERS_REPORTING_API_KEY", required=False):
+            log.warning("MEMBERS_REPORTING_API_KEY not set: no members numbers this week")
+            return None
+        return load_members_api(settings, start, end, http)
     if cfg["source"] != "shopify":
         return None
     from .shopify import ShopifyClient
@@ -286,3 +302,55 @@ def load_members(settings: Settings, args, start: date, end: date, shopify=None)
             more_o = data["orders"]["pageInfo"]["hasNextPage"]
             variables["oAfter"] = data["orders"]["pageInfo"]["endCursor"]
     return Members(customers, orders, revenue, "shopify")
+
+
+def load_members_api(settings: Settings, start: date, end: date, http=None, today: date | None = None) -> Members:
+    """Paid starts and cancellations for the week from the members portal.
+
+    ``GET /api/reporting/membership-history?days=N`` returns one entry per
+    London day, oldest first, ending yesterday. Since 22 Sep 2026 every new
+    start lands in annual_pro, so only the totals are used, never the tier mix.
+    Cancellation rate = cancellations in the week / paid members at its start.
+    """
+    from zoneinfo import ZoneInfo
+
+    base = (settings["members"].get("api_url") or "").rstrip("/")
+    if not base:
+        raise MembersAPIError("Set members.api_url in settings")
+    key = settings.secret("MEMBERS_REPORTING_API_KEY")
+    today = today or datetime.now(ZoneInfo(settings["timezone"])).date()
+    days = max(1, min(365, (today - start).days + 1))  # back to the day before the week starts
+    client = http or httpx.Client(timeout=60)
+    resp = client.get(
+        f"{base}/api/reporting/membership-history",
+        params={"days": days},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    if resp.status_code == 401:
+        raise MembersAPIError("Members portal refused the key (401): check MEMBERS_REPORTING_API_KEY")
+    if resp.status_code >= 400:
+        raise MembersAPIError(f"Members portal error {resp.status_code}: {resp.text[:200]}")
+    by_date = {date.fromisoformat(d["date"]): d for d in resp.json().get("days", [])}
+    week = [by_date[d] for d in sorted(by_date) if start <= d <= end]
+    if not week:
+        raise MembersAPIError(f"Members portal has no days between {start} and {end}")
+    started = sum(int(d["started"]) for d in week)
+    cancelled = sum(int(d["cancelled"]) for d in week)
+    before = by_date.get(start - timedelta(days=1))
+    first = week[0]
+    # Tier changes count as neither a start nor a cancellation, so this rebuilds the day before.
+    paid_at_start = int(before["totalPaid"]) if before else int(first["totalPaid"]) - int(first["started"]) + int(
+        first["cancelled"]
+    )
+    paid_at_end = int(week[-1]["totalPaid"])
+    return Members(
+        new_members=started,
+        member_orders=None,
+        member_revenue=None,
+        source="members portal",
+        cancelled=cancelled,
+        paid_at_start=paid_at_start,
+        paid_at_end=paid_at_end,
+        cancel_rate=round(cancelled / paid_at_start, 4) if paid_at_start else None,
+        covers_to=date.fromisoformat(week[-1]["date"]),
+    )

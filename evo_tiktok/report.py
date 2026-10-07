@@ -198,7 +198,7 @@ def analyse(settings: Settings, db, start: date, end: date, organic, paid, membe
         "ads": [asdict(r) | {"spend": str(r.spend)} for r in paid],
     }
     if members is None:
-        notes.append("No members data: set members.source or pass --new-members.")
+        notes.append("No members data: set MEMBERS_REPORTING_API_KEY (members portal) or pass --new-members.")
 
     boost, reason = pick_boost(settings, posts, medians)
     gate = gate_progress(settings, formats, medians, paid_summary, db, end)
@@ -299,11 +299,43 @@ def numbers_table(a: Analysis) -> str:
     ]
     if a.members:
         lines.append(
-            f"Members ({a.members.source}): {a.members.new_members} new, {a.members.member_orders} orders, "
-            f"£{a.members.member_revenue:.2f} revenue. Cost per new member (all paid spend ÷ new members): "
-            f"£{fmt(a.paid['cost_per_member_gbp'])}."
+            f"Members ({a.members.source}): {members_line(a.members)}. Cost per new member "
+            f"(all paid spend ÷ new members): £{fmt(a.paid['cost_per_member_gbp'])}."
         )
     return "\n".join(lines)
+
+
+def members_facts(m: metrics.Members) -> dict:
+    """The members numbers we have, leaving out what this source doesn't give."""
+    facts = {
+        "new_paid_members": m.new_members,
+        "cancelled": m.cancelled,
+        "paid_members_at_start": m.paid_at_start,
+        "paid_members_at_end": m.paid_at_end,
+        "weekly_cancellation_rate": m.cancel_rate,
+        "counted_up_to": m.covers_to,
+        "member_orders": m.member_orders,
+        "member_revenue_gbp": None if m.member_revenue is None else f"{m.member_revenue:.2f}",
+    }
+    return {k: v for k, v in facts.items() if v is not None}
+
+
+def members_line(m: metrics.Members) -> str:
+    parts = [f"{m.new_members} new"]
+    if m.cancelled is not None:
+        parts.append(f"{m.cancelled} cancelled")
+    if m.paid_at_end is not None:
+        parts.append(f"{m.paid_at_end} paid in total")
+    if m.cancel_rate is not None:
+        parts.append(f"{m.cancel_rate:.1%} weekly cancellation rate")
+    if m.member_orders is not None:
+        parts.append(f"{m.member_orders} orders")
+    if m.member_revenue is not None:
+        parts.append(f"£{m.member_revenue:.2f} revenue")
+    text = ", ".join(parts)
+    if m.covers_to is not None:
+        text += f" (to {m.covers_to:%-d %B}; the portal counts complete days only)"
+    return text
 
 
 AMOUNT_PER_DAY_RE = re.compile(r"£\s?\d+(?:\.\d+)?\s?(?:/|per\s)day", re.IGNORECASE)
@@ -339,9 +371,7 @@ def prompt_values(settings: Settings, a: Analysis) -> dict:
         "MEDIANS_JSON": json.dumps({**a.medians, "basis": a.median_basis}, default=str),
         "FORMATS_JSON": json.dumps(a.formats),
         "PAID_JSON": json.dumps({k: v for k, v in a.paid.items() if k != "ads"}),
-        "NEW_MEMBERS": a.members.new_members if a.members else "unknown",
-        "MEMBER_ORDERS": a.members.member_orders if a.members else "unknown",
-        "MEMBER_REVENUE": f"{a.members.member_revenue:.2f}" if a.members else "unknown",
+        "MEMBERS_JSON": json.dumps(members_facts(a.members), default=str) if a.members else "unknown",
         "GATE_JSON": json.dumps(a.gate, default=str),
         "BOOST_JSON": json.dumps(
             {"decision": boost_line(a), "reason": a.boost_reason, **(asdict(a.boost) if a.boost else {})}, default=str
@@ -398,7 +428,7 @@ def slack_text(a: Analysis, narrative: dict | None) -> str:
     lines.append(f"{t['posts']} posts, {t['views']:,} views, {t['shares']} shares, {t['follows']} follows.")
     if a.members:
         lines.append(
-            f"Members: {a.members.new_members} new, {a.members.member_orders} orders. "
+            f"Members: {members_line(a.members)}. "
             f"Paid £{a.paid['spend_gbp']}; cost per new member £{a.paid['cost_per_member_gbp'] or '–'}."
         )
     lines += [f"_{n}_" for n in a.notes]
@@ -460,9 +490,16 @@ def body(ctx: JobContext) -> None:
     start, end = week_window(today, int(cfg.get("window_days", 7)))
     organic = metrics.load_organic(settings, ctx.args, start, end)
     paid = metrics.load_paid(settings, ctx.args, start, end)
-    members = metrics.load_members(settings, ctx.args, start, end)
+    members_error = None
+    try:
+        members = metrics.load_members(settings, ctx.args, start, end)
+    except metrics.MembersAPIError as exc:  # the report still goes out, saying why members are missing
+        log.error("Members numbers unavailable: %s", exc)
+        members, members_error = None, str(exc)
     db = ctx.read_db()
     a = analyse(settings, db, start, end, organic, paid, members)
+    if members_error:
+        a.notes.append(f"Members numbers unavailable: {members_error}")
     narrative = write_narrative(ctx.llm or ClaudeJSON(settings, "report"), settings, a)
     report_md = render(a, narrative)
     out_dir = ROOT / settings["outputs"].get("report_dir", "out/reports") / end.isoformat()

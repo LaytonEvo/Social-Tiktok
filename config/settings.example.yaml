@@ -81,7 +81,8 @@ report:
       results: conversions
 
 members:
-  source: manual               # manual (--new-members) | shopify; Luke's portal API may replace both
+  source: members_api          # members_api (Luke's portal) | shopify | manual (--new-members)
+  api_url: "https://members.evolutiongolf.co.uk"
   customer_query: "tag:member" # Shopify customer search for members joined in the week
   order_query: "tag:member"    # Shopify order search for member orders
 
