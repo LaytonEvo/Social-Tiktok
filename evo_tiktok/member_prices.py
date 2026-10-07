@@ -36,8 +36,8 @@ def apply_member_prices(lines: list[StockLine], source: MemberPriceSource) -> in
     if not source.configured:
         log.warning("MEMBER_PRICES_API_URL not set: using public prices for discount checks")
         return 0
-    prices = source.fetch(line.sku for line in lines)
+    prices = source.fetch({line.shopify_sku for line in lines})
     for line in lines:
-        if line.sku in prices:
-            line.member_price = prices[line.sku]
+        if line.shopify_sku in prices:
+            line.member_price = prices[line.shopify_sku]
     return sum(1 for line in lines if line.member_price is not None)

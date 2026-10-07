@@ -222,7 +222,7 @@ def parse_bulk_records(records: Iterable[dict], settings: Settings) -> tuple[lis
             levels.setdefault(parent, {})[name] = levels.get(parent, {}).get(name, 0) + qty
 
     stats = {"variants": len(variants), "excluded": 0, "no_sku": 0, "cost_estimated": 0, "no_rrp": 0,
-             "duplicate_sku": 0}
+             "shared_sku": 0}
     lines: list[StockLine] = []
     for vid, v in variants.items():
         product = v.get("product") or {}
@@ -268,29 +268,34 @@ def parse_bulk_records(records: Iterable[dict], settings: Settings) -> tuple[lis
                 units_by_location=units_by_location,
             )
         )
-    return _dedupe_skus(lines, stats), stats
+    return _unique_skus(lines, stats), stats
 
 
-def _dedupe_skus(lines: list[StockLine], stats: dict[str, int]) -> list[StockLine]:
-    """Keep one line per SKU: the copy with the most stock.
+def _unique_skus(lines: list[StockLine], stats: dict[str, int]) -> list[StockLine]:
+    """Give every line its own key where Shopify shares a SKU between variants.
 
-    Scripts, validators and the snapshot all key on SKU, but Shopify lets two
-    variants share one. The extra copies are counted and named in the log so
-    they can be fixed in Shopify.
+    Ecco puts one SKU on every size of a style, a ball's dozen and sleeve can
+    share one, and old draft listings repeat live SKUs. Scripts, validators and
+    the snapshot all key on SKU, so a shared SKU gets the size (or variant
+    title) added, then the variant number if that still clashes.
     """
-    best: dict[str, StockLine] = {}
     counts: dict[str, int] = {}
     for line in lines:
         counts[line.sku] = counts.get(line.sku, 0) + 1
-        kept = best.get(line.sku)
-        if kept is None or line.units_total > kept.units_total:
-            best[line.sku] = line
-    dupes = sorted(sku for sku, n in counts.items() if n > 1)
-    if dupes:
-        stats["duplicate_sku"] = len(lines) - len(best)
-        log.warning(
-            "%d SKUs are on more than one Shopify variant; kept the copy with most stock: %s%s",
-            len(dupes), ", ".join(dupes[:20]), " ..." if len(dupes) > 20 else "",
-        )
-    kept_ids = {id(line) for line in best.values()}
-    return [line for line in lines if id(line) in kept_ids]
+    shared = {sku for sku, n in counts.items() if n > 1}
+    if not shared:
+        return lines
+    seen: set[str] = {line.sku for line in lines if line.sku not in shared}
+    for line in lines:
+        if line.sku not in shared:
+            continue
+        label = (line.size or line.variant_title or "").replace(" ", "")
+        key = f"{line.sku} {label}".strip()
+        if key in seen:
+            key = f"{key} #{line.variant_id.rsplit('/', 1)[-1]}"
+        seen.add(key)
+        line.sku = key
+    stats["shared_sku"] = sum(counts[sku] for sku in shared)
+    log.info("%d SKUs are shared by %d variants; the size was added to tell them apart",
+             len(shared), stats["shared_sku"])
+    return lines
