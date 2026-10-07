@@ -8,7 +8,13 @@ from decimal import Decimal
 
 @dataclass
 class StockLine:
-    """One Shopify variant with stock, after exclusions and allocation."""
+    """One Shopify variant with stock, after exclusions and allocation.
+
+    ``sku`` is this line's unique key. It's the Shopify SKU, except where
+    several variants share one (Ecco puts one SKU on every size of a style), when
+    the size is added, e.g. "130404-57208 UK9". ``shopify_sku`` is always the
+    SKU exactly as Shopify holds it.
+    """
 
     sku: str
     variant_id: str
@@ -34,6 +40,10 @@ class StockLine:
     ladies: bool = False
     members_units: int = 0
     flags: list[str] = field(default_factory=list)
+    shopify_sku: str = ""
+
+    def __post_init__(self) -> None:
+        self.shopify_sku = self.shopify_sku or self.sku
 
     @property
     def units_total(self) -> int:

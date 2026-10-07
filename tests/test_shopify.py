@@ -120,16 +120,21 @@ def test_access_denied_names_the_blocked_field(settings):
         list(client.export_variants_jsonl())
 
 
-def test_duplicate_skus_keep_the_copy_with_most_stock(settings):
-    recs = [r for r in records()]
-    variant = next(r for r in recs if r.get("__parentId") is None and (r.get("sku") or "").strip()
-                   and r.get("product", {}).get("productType", "").lower() not in {"personalisation"})
-    twin = json.loads(json.dumps(variant))
-    twin["id"] = variant["id"] + "-twin"
-    twin["inventoryItem"] = {**(twin.get("inventoryItem") or {}), "id": "gid://shopify/InventoryItem/twin"}
-    level = {"__parentId": twin["id"], "location": {"name": "Warehouse"},
-             "quantities": [{"name": "available", "quantity": 999}]}
-    lines, stats = parse_bulk_records(recs + [twin, level], settings)
-    same = [l for l in lines if l.sku == variant["sku"].strip()]
-    assert len(same) == 1 and same[0].variant_id == twin["id"] and same[0].units_total == 999
-    assert stats["duplicate_sku"] == 1
+def test_shared_skus_get_the_size_added_and_keep_all_stock(settings):
+    recs = records()
+    variant = next(r for r in recs if r.get("__parentId") is None and r.get("sku") == "SHOE-9")
+    twins = []
+    for n, size in enumerate(["UK10", "UK10"]):  # a second size, then a draft copy of it
+        twin = json.loads(json.dumps(variant))
+        twin["id"] = f"gid://shopify/ProductVariant/77{n}"
+        twin["inventoryItem"] = {**(twin.get("inventoryItem") or {}), "id": f"gid://shopify/InventoryItem/77{n}"}
+        twin["selectedOptions"] = [{"name": "Size", "value": size}]
+        twins += [twin, {"__parentId": twin["id"], "location": {"name": "Warehouse"},
+                         "quantities": [{"name": "available", "quantity": 2}]}]
+    before, _ = parse_bulk_records(recs, settings)
+    lines, stats = parse_bulk_records(recs + twins, settings)
+    assert len(lines) == len(before) + 2  # nothing dropped
+    keys = [l.sku for l in lines if l.shopify_sku == "SHOE-9"]
+    assert len(keys) == len(set(keys)) == 3
+    assert "SHOE-9 UK10" in keys and "SHOE-9 UK10 #771" in keys
+    assert stats["shared_sku"] == 3
