@@ -34,7 +34,7 @@ def run_stock(settings, *flags):
 
 def test_migrations_are_idempotent(tmp_path):
     db = Database(f"sqlite:///{tmp_path / 'm.db'}")
-    assert db.migrate() == ["001_init", "002_weekly_report"]
+    assert db.migrate() == ["001_init", "002_weekly_report", "003_dashboard"]
     assert db.migrate() == []
     db.close()
 

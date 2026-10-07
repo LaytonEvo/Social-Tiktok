@@ -91,6 +91,21 @@ def _write_db(ctx: JobContext, record: dict) -> None:
     db.commit()
 
 
+NO_DASHBOARD_REFRESH = {"dashboard", "migrate", "members"}
+
+
+def _refresh_dashboard(ctx: JobContext) -> None:
+    """Bring the ops dashboard up to date. Best effort: it never changes the job's result."""
+    from . import dashboard
+
+    try:
+        db = ctx.read_db()
+        if db is not None and dashboard.refresh(ctx.settings, db):
+            log.info("Dashboard refreshed")
+    except Exception as exc:
+        log.warning("Dashboard refresh failed: %s", exc)
+
+
 def run_job(
     job: str,
     body: Callable[[JobContext], None],
@@ -148,6 +163,8 @@ def run_job(
         except Exception as exc:
             log.error("Could not write run_log row: %s", exc)
             code = code or 1
+    if not ctx.dry_run and record["status"] != "skipped" and job not in NO_DASHBOARD_REFRESH:
+        _refresh_dashboard(ctx)
     if ctx._db is not None:
         ctx._db.close()
     log.info("%s %s (run %s%s)", job, record["status"], ctx.run_id, ", dry run" if ctx.dry_run else "")
