@@ -3,9 +3,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+import pytest
 
 from evo_tiktok.config import Settings
-from evo_tiktok.shopify import ShopifyClient, parse_bulk_records
+from evo_tiktok.shopify import ShopifyClient, ShopifyError, parse_bulk_records
 
 FIXTURE = Path(__file__).parent / "fixtures" / "shopify_bulk.jsonl"
 
@@ -97,3 +98,23 @@ def test_clear_errors_for_bad_or_missing_credentials(settings):
         ShopifyClient(_settings(settings, SHOPIFY_CLIENT_ID="a", SHOPIFY_CLIENT_SECRET="b"), http=refuse)
     with pytest.raises(ShopifyError, match="SHOPIFY_CLIENT_ID"):
         ShopifyClient(_settings(settings), http=refuse)
+
+
+def test_access_denied_names_the_blocked_field(settings):
+    s = _settings(settings, SHOPIFY_ADMIN_TOKEN="t")
+    s.data["shopify"]["bulk_poll_seconds"] = 0
+
+    def api(request: httpx.Request):
+        query = json.loads(request.content)["query"]
+        if "bulkOperationRunQuery" in query:
+            return httpx.Response(200, json={"data": {"bulkOperationRunQuery": {
+                "bulkOperation": {"id": "gid://shopify/BulkOperation/1", "status": "CREATED"}, "userErrors": []}}})
+        if "query poll" in query:
+            return httpx.Response(200, json={"data": {"node": {"id": "x", "status": "FAILED",
+                                                               "errorCode": "ACCESS_DENIED"}}})
+        assert "productVariants(first: 1)" in query
+        return httpx.Response(200, json={"errors": [{"message": "Access denied for unitCost field."}]})
+
+    client = ShopifyClient(s, http=httpx.Client(transport=httpx.MockTransport(api)))
+    with pytest.raises(ShopifyError, match="Access denied for unitCost field"):
+        list(client.export_variants_jsonl())
