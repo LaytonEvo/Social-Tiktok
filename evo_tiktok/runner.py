@@ -78,6 +78,8 @@ def _write_db(ctx: JobContext, record: dict) -> None:
     db = ctx.db()
     if db is None:
         return
+    if record["status"] == "failed":
+        db.rollback()  # a failed statement leaves Postgres refusing everything until rollback
     db.execute(
         "INSERT INTO run_log (run_id, job, started_at, finished_at, dry_run, status, summary, error) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
