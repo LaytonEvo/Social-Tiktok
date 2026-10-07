@@ -64,6 +64,10 @@ python -m evo_tiktok.posts --week 2026-10-05 --script 3 --post <TikTok video URL
   the report still goes out with a note. `manual` means passing `--new-members`,
   `--member-orders` and `--member-revenue`; `shopify` counts customers and orders matching the
   searches in settings.
+- To check the members key without waiting for Friday: set the report service's start command
+  to `python -m evo_tiktok.members --dry-run`, remove its cron schedule and redeploy. The log
+  shows "Members portal OK" with the last 7 days, or the reason it failed. Then put back
+  `python -m evo_tiktok.migrate && python -m evo_tiktok.report` and the cron `0 14,15 * * 5`.
 - The report only recommends. `weekly_report.boost_status` stays "awaiting approval"; Layton
   approves (reply in the Doc or in person) and someone sets the spend in TikTok Ads Manager by hand.
 
