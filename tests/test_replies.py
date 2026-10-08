@@ -240,3 +240,11 @@ def test_link_post(job, db_with_post):
     db = Database(url)
     assert db.query("SELECT tiktok_post_id, status FROM content_log WHERE script_no = 4") == [("7411111111111111111", "posted")]
     db.close()
+
+
+def test_no_reply_sheet_yet_is_a_quiet_skip(job):
+    s, url, tmp, posted, hosts = job
+    assert replies.main([], llm=FakeLLM(), settings=s) == 0
+    record = json.loads((tmp / "logs" / "runs.jsonl").read_text().splitlines()[-1])
+    assert record["status"] == "ok" and "no reply Sheet" in record["summary"]["skipped"]
+    assert posted == [] and hosts == [] and _queue(url) == []

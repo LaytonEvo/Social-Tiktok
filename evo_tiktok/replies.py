@@ -471,6 +471,11 @@ def slack_text(settings: Settings, drafts: list[Draft]) -> str:
 
 def body(ctx: JobContext) -> None:
     settings = ctx.settings
+    if not ctx.args.from_csv and not settings["outputs"].get("reply_sheet_id"):
+        # Nothing to read until the reply Sheet exists; that's a setup step, not a failure.
+        ctx.summary["skipped"] = "no reply Sheet yet (set outputs.reply_sheet_id)"
+        log.info("No reply Sheet set up yet: nothing to draft")
+        return
     comments = load_comments(ctx)
     db = ctx.read_db()
     seen = already_queued(db, [c.comment_id for c in comments])

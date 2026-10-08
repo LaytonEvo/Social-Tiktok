@@ -20,7 +20,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import metrics, validators
-from .config import ROOT, Settings
+import httpx
+
+from .config import ROOT, ConfigError, Settings
 from .llm import ClaudeJSON, JSONModel, LLMError, load_prompt
 from .publish import publish
 from .runner import JobContext, run_job
@@ -482,14 +484,25 @@ def save(db, a: Analysis, report_md: str) -> None:
     db.commit()
 
 
+def _load_or_note(loader, what: str, gaps: list[str], *args) -> list:
+    """Load a metrics source; if it isn't set up yet, note why and carry on without it."""
+    try:
+        return loader(*args)
+    except (ValueError, ConfigError, RuntimeError, httpx.HTTPError) as exc:
+        log.warning("%s unavailable: %s", what, exc)
+        gaps.append(f"{what} not available this week ({exc}). Connect TikTok in Windsor or pass a CSV.")
+        return []
+
+
 def body(ctx: JobContext) -> None:
     settings = ctx.settings
     cfg = settings["report"]
     tz = ZoneInfo(settings["timezone"])
     today = date.fromisoformat(ctx.args.week_end) if ctx.args.week_end else datetime.now(tz).date()
     start, end = week_window(today, int(cfg.get("window_days", 7)))
-    organic = metrics.load_organic(settings, ctx.args, start, end)
-    paid = metrics.load_paid(settings, ctx.args, start, end)
+    gaps: list[str] = []
+    organic = _load_or_note(metrics.load_organic, "TikTok video stats", gaps, settings, ctx.args, start, end)
+    paid = _load_or_note(metrics.load_paid, "TikTok Ads spend", gaps, settings, ctx.args, start, end)
     members_error = None
     try:
         members = metrics.load_members(settings, ctx.args, start, end)
@@ -500,7 +513,12 @@ def body(ctx: JobContext) -> None:
     a = analyse(settings, db, start, end, organic, paid, members)
     if members_error:
         a.notes.append(f"Members numbers unavailable: {members_error}")
-    narrative = write_narrative(ctx.llm or ClaudeJSON(settings, "report"), settings, a)
+    a.notes += gaps
+    if organic:
+        narrative = write_narrative(ctx.llm or ClaudeJSON(settings, "report"), settings, a)
+    else:  # nothing to rank; don't ask the model to write about posts it can't see
+        narrative = None
+        a.notes.append("No commentary this week: there are no TikTok video stats to rank.")
     report_md = render(a, narrative)
     out_dir = ROOT / settings["outputs"].get("report_dir", "out/reports") / end.isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)

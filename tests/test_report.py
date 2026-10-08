@@ -293,3 +293,22 @@ def test_members_portal_bad_key_is_a_clear_error(settings):
     s, http = _portal(settings, [], status=401)
     with pytest.raises(metrics.MembersAPIError, match="MEMBERS_REPORTING_API_KEY"):
         metrics.load_members_api(s, date(2026, 10, 3), date(2026, 10, 9), http, today=date(2026, 10, 9))
+
+
+def test_report_goes_out_without_tiktok_stats(job):
+    s, url, tmp, posted, methods, _ = job
+    # No CSVs and Windsor not set up: the report still goes out with members and a clear note.
+    argv = ["--week-end", END.isoformat(), "--new-members", "26"]
+
+    class NoCalls:
+        def complete_json(self, *a, **k):
+            raise AssertionError("no commentary without video stats")
+
+    assert report.main(argv, llm=NoCalls(), settings=s) == 0
+    md = posted[0][1]
+    assert "TikTok video stats not available this week" in md
+    assert "TikTok Ads spend not available this week" in md
+    assert "No commentary this week" in md and "26 new" in md
+    db = Database(url)
+    assert db.query("SELECT boost_status FROM weekly_report")[0][0] == "none"
+    db.close()
