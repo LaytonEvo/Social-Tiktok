@@ -100,7 +100,7 @@ def apply_member_prices(lines: list[StockLine], source: MemberPriceSource, stats
         else:
             line.member_price = None
             line.members_units = 0
-    in_stock = {_variant_key(l.variant_id) for l in lines if l.member_price is not None and l.units_total > 0}
+    in_stock = {_variant_key(ln.variant_id) for ln in lines if ln.member_price is not None and ln.units_total > 0}
     stats.update(
         portal="live",
         portal_variants=len(prices),

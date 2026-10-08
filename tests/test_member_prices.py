@@ -1,10 +1,8 @@
-import json
 from decimal import Decimal
 
 import httpx
-import pytest
 
-from evo_tiktok import allocation, dashboard, metrics, validators
+from evo_tiktok import allocation, dashboard, validators
 from evo_tiktok.config import Settings
 from evo_tiktok.member_prices import MemberPriceSource, apply_member_prices
 
