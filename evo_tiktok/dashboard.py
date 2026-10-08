@@ -309,6 +309,7 @@ def publish_sheet(settings: Settings, data: dict, sheets=None) -> int:
 def refresh(settings: Settings, db) -> bool:
     """Rebuild, save and publish. Called after job runs; never raises."""
     if not sheet_id(settings):
+        log.warning("Dashboard not refreshed: DASHBOARD_SHEET_ID is empty on this service")
         return False
     try:
         data = build(db, settings)
