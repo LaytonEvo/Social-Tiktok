@@ -83,7 +83,7 @@ def save_snapshot(db, snapshot_id: str, taken_at: str, lines: list[StockLine]) -
 
 def body(ctx: JobContext) -> None:
     lines, stats = build_snapshot(load_records(ctx), ctx.settings)
-    stats["member_prices"] = apply_member_prices(lines, MemberPriceSource(ctx.settings))
+    stats["member_prices"] = apply_member_prices(lines, MemberPriceSource(ctx.settings), stats)
     ctx.summary.update(summarise(lines, stats))
     log.info("Snapshot summary: %s", json.dumps(ctx.summary, indent=2))
     db = ctx.db()
