@@ -97,7 +97,8 @@ restricted_brands:     # no brand + price together; update after account decisio
   - PXG
 
 price_claims:
-  default_claim: "40–50% off for members"
+  # The claim in scripts is worked out from the featured lines' real discounts
+  # ("up to X% off for members"), never a fixed figure.
   up_to_threshold_share: 0.30   # share of featured lines that must hit the max discount
   brand_price_window_chars: 40
 
@@ -135,7 +136,7 @@ pilot_gate:
   max_cost_per_member_gbp: 3
 
 member_prices:
-  source: luke_api     # pending: Luke is providing the members portal API
+  source: luke_api     # GET members.api_url/api/reporting/member-products (MEMBERS_REPORTING_API_KEY)
 
 dashboard:
   sheet_id: null              # or set DASHBOARD_SHEET_ID

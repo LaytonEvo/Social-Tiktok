@@ -107,6 +107,10 @@ def stock_numbers(db, settings: Settings) -> dict | None:
         "members_lines_without_rrp": s.get("routed_but_no_rrp"),
         "variants_without_sku": s.get("no_sku"),
         "member_prices_loaded": s.get("member_prices"),
+        "portal": s.get("portal"),
+        "portal_variants": s.get("portal_variants"),
+        "portal_variants_in_stock": s.get("portal_variants_in_stock"),
+        "portal_variants_no_stock": s.get("portal_variants_no_stock"),
     }
 
 
@@ -116,11 +120,12 @@ def members_numbers(db, settings: Settings, http=None) -> dict | None:
         end = datetime.now(ZoneInfo(settings["timezone"])).date() - timedelta(days=1)
         try:
             m = metrics.load_members_api(settings, end - timedelta(days=6), end, http)
+            live = metrics.load_customer_metrics(settings, http)
             return {
                 "source": "members portal, last 7 days",
                 "from": (end - timedelta(days=6)).isoformat(), "to": end.isoformat(),
                 "new": m.new_members, "cancelled": m.cancelled, "paid_total": m.paid_at_end,
-                "cancel_rate": m.cancel_rate,
+                "cancel_rate": m.cancel_rate, "paid_now": live.get("paid_now"),
             }
         except metrics.MembersAPIError as exc:
             log.warning("Dashboard: members portal unavailable: %s", exc)
@@ -242,6 +247,7 @@ def sheet_rows(data: dict) -> tuple[list[list], list[int]]:
             ["New paid members", _n(m.get("new"))],
             ["Cancelled", _n(m.get("cancelled"))],
             ["Paid members in total", _n(m.get("paid_total"))],
+            ["Paid members right now (live)", _n(m.get("paid_now"))],
             ["Weekly cancellation rate", "–" if rate is None else f"{rate:.1%}"],
         ]
     rows.append([])
@@ -276,7 +282,9 @@ def sheet_rows(data: dict) -> tuple[list[list], list[int]]:
         rows += [
             ["Members Club lines with no RRP (can't say 'was £X')", _n(s["members_lines_without_rrp"])],
             ["Variants with no SKU (the jobs can't see them)", _n(s["variants_without_sku"])],
-            ["Lines with a member price loaded", _n(s["member_prices_loaded"])],
+            ["Members portal", s.get("portal") or "–"],
+            ["Portal deal variants live", _n(s.get("portal_variants"))],
+            ["Portal deals with no stock in Shopify (check before filming)", _n(s.get("portal_variants_no_stock"))],
         ]
     return rows, headings
 

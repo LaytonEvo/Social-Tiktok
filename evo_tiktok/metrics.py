@@ -354,3 +354,25 @@ def load_members_api(settings: Settings, start: date, end: date, http=None, toda
         cancel_rate=round(cancelled / paid_at_start, 4) if paid_at_start else None,
         covers_to=date.fromisoformat(week[-1]["date"]),
     )
+
+
+def load_customer_metrics(settings: Settings, http=None) -> dict:
+    """Live snapshot from the portal: paid members right now and customer activity.
+
+    ``GET /api/reporting/customer-metrics`` is computed live, so call it at most
+    once a minute. Since the single-membership move every paid member shows as
+    annual_pro here, so only the totals are used.
+    """
+    base = (settings["members"].get("api_url") or "").rstrip("/")
+    key = settings.secret("MEMBERS_REPORTING_API_KEY")
+    client = http or httpx.Client(timeout=60)
+    resp = client.get(f"{base}/api/reporting/customer-metrics", headers={"Authorization": f"Bearer {key}"})
+    if resp.status_code >= 400:
+        raise MembersAPIError(f"Members portal error {resp.status_code}: {resp.text[:200]}")
+    body = resp.json()
+    customers = body.get("customers") or {}
+    return {
+        "paid_now": (body.get("memberships") or {}).get("totalPaid"),
+        "customers": customers.get("total"),
+        "active_90_days": customers.get("activeLast90Days"),
+    }

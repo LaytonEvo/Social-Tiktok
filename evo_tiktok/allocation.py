@@ -164,7 +164,15 @@ def allocate(line: StockLine, settings) -> StockLine:
 
 
 def featured_pool(lines: Iterable[StockLine]) -> list[StockLine]:
-    """SPEC 4.1 step 1: Members-routed, in stock, RRP present, live on site."""
+    """SPEC 4.1 step 1: what we may feature, in stock with an RRP.
+
+    With the Members Club portal loaded, that's lines live in a portal deal
+    (clearance can be hidden from the public site, so storefront status doesn't
+    matter). Without it, the allocation rules' Members lines that are live on site.
+    """
+    lines = list(lines)
+    if any(line.in_portal for line in lines):
+        return [line for line in lines if line.in_portal and line.units_total > 0 and line.has_rrp]
     return [
         line
         for line in lines

@@ -59,6 +59,10 @@ def brand_price_check(text: str, brands: Iterable[str], window: int = 40) -> lis
     return errors
 
 
+# Member prices are rounded to the penny, so 22.06 off 25.95 is 14.99%: a claim
+# of 15% is fair. Claims may round up by at most this many percentage points.
+ROUNDING_PCT = 0.5
+
 UP_TO_RE = re.compile(r"\bup\s+to\s+(\d+(?:\.\d+)?)\s?%", re.IGNORECASE)
 
 
@@ -73,7 +77,7 @@ def up_to_claim_check(text: str, featured_lines: Iterable[StockLine], threshold_
         if not lines:
             errors.append(f"'up to {pct:g}%' claimed with no featured lines")
             continue
-        hits = sum(1 for line in lines if (line.discount_pct or 0) >= pct - 1e-9)
+        hits = sum(1 for line in lines if (line.discount_pct or 0) >= pct - ROUNDING_PCT)
         share = hits / len(lines)
         if share < threshold_share:
             errors.append(
@@ -81,6 +85,47 @@ def up_to_claim_check(text: str, featured_lines: Iterable[StockLine], threshold_
                 f"only {hits}/{len(lines)} ({share:.0%})"
             )
     return errors
+
+
+# "40% off", "40-50% off", "40–50% off" (but not "up to 40%", checked above)
+PERCENT_OFF_RE = re.compile(
+    r"(?<!up to )(?<!up to)\b(\d+(?:\.\d+)?)\s?%?\s?(?:[-–]|to)?\s?(?:(\d+(?:\.\d+)?)\s?)?%\s*off\b",
+    re.IGNORECASE,
+)
+
+
+def percent_off_check(text: str, featured_lines: Iterable[StockLine], threshold_share: float) -> list[str]:
+    """Fail if "X% off" or "X–Y% off" is claimed but too few featured lines reach X% off."""
+    lines = list(featured_lines)
+    errors = []
+    for m in PERCENT_OFF_RE.finditer(text):
+        if re.search(r"up\s+to\s*$", text[: m.start()], re.IGNORECASE):
+            continue  # an "up to" claim; up_to_claim_check covers it
+        low = float(m.group(1))
+        if not lines:
+            errors.append(f"'{m.group(0).strip()}' claimed with no featured lines")
+            continue
+        hits = sum(1 for line in lines if (line.discount_pct or 0) >= low - ROUNDING_PCT)
+        if hits / len(lines) < threshold_share:
+            errors.append(
+                f"'{m.group(0).strip()}' needs {threshold_share:.0%} of featured lines at {low:g}%+ off; "
+                f"only {hits}/{len(lines)}"
+            )
+    return errors
+
+
+def honest_claim(featured_lines: Iterable[StockLine], threshold_share: float, floor_pct: int = 10) -> str:
+    """The strongest "up to X% off" the featured lines support, rounded down to 5%.
+
+    X is a discount that at least ``threshold_share`` of the lines reach, so the
+    claim passes ``up_to_claim_check``. No meaningful discount: no percentage.
+    """
+    discounts = sorted((line.discount_pct or 0 for line in featured_lines), reverse=True)
+    if not discounts:
+        return "member-only prices"
+    need = max(1, -(-int(threshold_share * 1000) * len(discounts) // 1000))  # ceil(share * n)
+    pct = int((discounts[need - 1] + ROUNDING_PCT) // 5 * 5)
+    return f"up to {pct}% off for members" if pct >= floor_pct else "member-only prices"
 
 
 RRP_RE = re.compile(r"\bRRP\b|\bwas\s+£|\bretail\s+price\b|\bnormally\s+£", re.IGNORECASE)

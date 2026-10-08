@@ -50,8 +50,26 @@ class StockLine:
         return sum(self.units_by_location.values())
 
     @property
+    def in_portal(self) -> bool:
+        """Live in a Members Club deal (only portal deals carry a member price)."""
+        return self.member_price is not None
+
+    @property
+    def rrp(self) -> Decimal | None:
+        """The "was" price we may show, always one Shopify holds.
+
+        Shopify's compare-at price when it's above the price; for a portal deal
+        without one, the live Shopify price itself (what non-members pay).
+        """
+        if self.compare_at_price is not None and self.compare_at_price > self.price:
+            return self.compare_at_price
+        if self.member_price is not None and self.price > self.member_price:
+            return self.price
+        return None
+
+    @property
     def has_rrp(self) -> bool:
-        return self.compare_at_price is not None and self.compare_at_price > self.price
+        return self.rrp is not None
 
     @property
     def selling_price(self) -> Decimal:
@@ -61,9 +79,10 @@ class StockLine:
     @property
     def discount_pct(self) -> float | None:
         """Discount off RRP in percent, or None when Shopify holds no RRP."""
-        if self.compare_at_price is None or self.compare_at_price <= 0:
+        rrp = self.rrp
+        if rrp is None or rrp <= 0:
             return None
-        return float((1 - self.selling_price / self.compare_at_price) * 100)
+        return float((1 - self.selling_price / rrp) * 100)
 
     @property
     def members_routed(self) -> bool:

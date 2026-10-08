@@ -164,7 +164,7 @@ def pick_giveaway(pool: list[StockLine], stock_by_sku: dict[str, StockLine], pin
             raise validators.GuardrailError([f"Pinned giveaway SKU {pinned} is not in stock"])
         return line
     candidates = [l for l in pool if l.members_units > 0]
-    return max(candidates, key=lambda l: (l.compare_at_price or 0, l.members_units, l.sku), default=None)
+    return max(candidates, key=lambda l: (l.rrp or 0, l.members_units, l.sku), default=None)
 
 
 def is_trolley(line: StockLine) -> bool:
@@ -271,7 +271,7 @@ def prompt_values(settings: Settings, plan: Plan, history: list[dict]) -> dict:
         "GIVEAWAY_PRODUCT": plan.giveaway.product_title if plan.giveaway else "none this week",
         "GIVEAWAY_SKU": plan.giveaway.sku if plan.giveaway else "n/a",
         "GIVEAWAY_CLOSE_DATE": plan.giveaway_close.strftime("%-d %B %Y") if plan.giveaway_close else "n/a",
-        "PRICE_CLAIM": settings["price_claims"]["default_claim"],
+        "PRICE_CLAIM": validators.honest_claim(plan.pool, settings.up_to_threshold),
         "TOP_POSTS_SUMMARY": top_posts_summary(history),
     }
 
@@ -305,6 +305,7 @@ def validate_scripts(scripts: list[dict], plan: Plan, settings: Settings) -> lis
         for text in [caption + " " + " ".join(s["hashtags"]), *screen, " ".join(screen)]:
             e += validators.brand_price_check(text, brands, window)
         e += validators.up_to_claim_check(public, plan.pool, settings.up_to_threshold)
+        e += validators.percent_off_check(public, plan.pool, settings.up_to_threshold)
         e += validators.rrp_check(public, s["featured_skus"], plan.stock_by_sku)
         e += validators.stock_check(s["featured_skus"], plan.stock_by_sku)
         e += validators.real_footage_check(everything)
@@ -432,7 +433,7 @@ def body(ctx: JobContext) -> None:
         date.fromisoformat(ctx.args.week_start) if ctx.args.week_start else week_start_for(datetime.now(tz).date())
     )
     lines, stats = stock.build_snapshot(stock.load_records(ctx), settings)
-    apply_member_prices(lines, MemberPriceSource(settings))
+    apply_member_prices(lines, MemberPriceSource(settings), stats)
     history = history_rows(ctx.read_db(), week_start)
     plan = build_plan(settings, lines, history, week_start)
     ctx.summary.update(
