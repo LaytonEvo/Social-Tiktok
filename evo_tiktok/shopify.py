@@ -31,9 +31,10 @@ BULK_QUERY = """
         title
         price
         compareAtPrice
+        availableForSale
         selectedOptions { name value }
         inventoryQuantity
-        product { id title vendor productType tags status }
+        product { id title vendor productType tags status onlineStoreUrl }
         inventoryItem {
           id
           unitCost { amount }
@@ -266,6 +267,9 @@ def parse_bulk_records(records: Iterable[dict], settings: Settings) -> tuple[lis
                 unit_cost=cost,
                 cost_estimated=cost_estimated,
                 units_by_location=units_by_location,
+                # Buyable on evolutiongolf.co.uk: published to the Online Store and for sale.
+                available_online=bool(v.get("availableForSale")) and bool(product.get("onlineStoreUrl")),
+                url=product.get("onlineStoreUrl"),
             )
         )
     return _unique_skus(lines, stats), stats

@@ -155,3 +155,45 @@ class GoogleDoc:
         if resp.status_code >= 400:
             raise DocsError(f"Docs API {resp.status_code}: {resp.text[:300]}")
         return len(paras)
+
+    def _paragraphs(self, doc_id: str) -> list[tuple[int, int, str]]:
+        """(start, end, text) for each paragraph in the Doc body."""
+        resp = self.session.get(f"{API}/{doc_id}")
+        if resp.status_code >= 400:
+            raise DocsError(f"Docs API {resp.status_code}: {resp.text[:300]}")
+        out = []
+        for el in resp.json().get("body", {}).get("content", []):
+            para = el.get("paragraph")
+            if para is None:
+                continue
+            text = "".join(r.get("textRun", {}).get("content", "") for r in para.get("elements", []))
+            out.append((el["startIndex"], el["endIndex"], text.strip()))
+        return out
+
+    def entries(self, doc_id: str, heading: str) -> list[tuple[int, int]]:
+        """Index ranges of every entry with this heading: from the heading down to
+        the divider that ends each entry (or the end of the Doc)."""
+        paras = self._paragraphs(doc_id)
+        ranges = []
+        for i, (start, _, text) in enumerate(paras):
+            if text != heading:
+                continue
+            end = next((e for _, e, t in paras[i + 1:] if t == DIVIDER), paras[-1][1])
+            ranges.append((start, end))
+        return ranges
+
+    def remove(self, doc_id: str, heading: str) -> int:
+        """Delete every entry with this heading. Returns how many were removed."""
+        ranges = self.entries(doc_id, heading)
+        if not ranges:
+            return 0
+        body_end = self._paragraphs(doc_id)[-1][1]
+        requests = []
+        for start, end in sorted(ranges, reverse=True):  # bottom up, so earlier indexes stay valid
+            end = min(end, body_end - 1)  # the Doc's final newline can't be deleted
+            if end > start:
+                requests.append({"deleteContentRange": {"range": {"startIndex": start, "endIndex": end}}})
+        resp = self.session.post(f"{API}/{doc_id}:batchUpdate", json={"requests": requests})
+        if resp.status_code >= 400:
+            raise DocsError(f"Docs API {resp.status_code}: {resp.text[:300]}")
+        return len(ranges)

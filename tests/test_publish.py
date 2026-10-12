@@ -101,3 +101,59 @@ def test_google_sign_in_errors_are_clear(settings):
                                     env={"GOOGLE_OAUTH_CLIENT_ID": "a", "GOOGLE_OAUTH_CLIENT_SECRET": "b"}), [])
     with pytest.raises(ConfigError, match="No Google sign-in"):
         authorized_session(Settings(settings.data, settings.source, env={}), [])
+
+
+class FakeDoc:
+    """A Google Doc held as paragraphs; supports the reads and edits the publisher makes."""
+
+    def __init__(self, paragraphs):
+        self.paras = list(paragraphs) + [""]  # a Doc always ends with an empty paragraph
+
+    def _content(self):
+        out, pos = [], 1
+        for text in self.paras:
+            end = pos + gdoc.u16(text) + 1
+            out.append({"startIndex": pos, "endIndex": end,
+                        "paragraph": {"elements": [{"textRun": {"content": text + "\n"}}]}})
+            pos = end
+        return out
+
+    def get(self, url):
+        return type("R", (), {"status_code": 200, "json": lambda _s: {"body": {"content": self._content()}}})()
+
+    def post(self, url, json):
+        for req in json["requests"]:
+            if "insertText" in req:
+                assert req["insertText"]["location"]["index"] == 1
+                self.paras = req["insertText"]["text"].rstrip("\n").split("\n") + self.paras
+            elif "deleteContentRange" in req:
+                r = req["deleteContentRange"]["range"]
+                self.paras = [p["paragraph"]["elements"][0]["textRun"]["content"].rstrip("\n")
+                              for p in self._content()
+                              if not (p["startIndex"] >= r["startIndex"] and p["endIndex"] <= r["endIndex"] + 1)]
+        return type("R", (), {"status_code": 200, "text": ""})()
+
+
+def _entry(title, body):
+    return [title, body, gdoc.DIVIDER]
+
+
+def test_a_rerun_replaces_the_weeks_pack_instead_of_adding_one(settings, monkeypatch):
+    title = "Filming pack: week of 12 October 2026"
+    doc = FakeDoc(
+        _entry(title, "today's pack (Ecco giveaway)")
+        + _entry("TikTok weekly report: 3 Oct to 9 Oct 2026", "report")
+        + _entry(title, "Thursday's portal pack")
+        + _entry(title, "Thursday morning test (Callaway giveaway)")
+        + _entry("Filming pack: week of 5 October 2026", "last week's pack")
+    )
+    monkeypatch.setattr("evo_tiktok.gsheets.authorized_session", lambda *a, **k: doc)
+    data = copy.deepcopy(settings.data)
+    data["outputs"].update(destination="google_doc", google_doc_id="DOC")
+    result = publish.publish(Settings(data, settings.source), f"# {title}\n\nthe new pack", replace_heading=title)
+    assert result["replaced"] == 3 and result["entries_with_heading"] == 1
+    texts = [p for p in doc.paras if p]
+    assert texts.count(title) == 1 and texts[:2] == [title, "the new pack"]
+    # Other entries are untouched.
+    assert "TikTok weekly report: 3 Oct to 9 Oct 2026" in texts and "last week's pack" in texts
+    assert not any("Thursday" in t or "Ecco" in t for t in texts)

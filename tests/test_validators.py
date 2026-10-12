@@ -1,6 +1,8 @@
 import pytest
 
 from evo_tiktok.validators import (
+    member_discount_check,
+    price_claim_check,
     GuardrailError,
     brand_price_check,
     free_entry_wording,
@@ -90,23 +92,28 @@ class TestGiveaway:
     def test_wording_is_loaded_from_content_rules(self):
         assert free_entry_wording().startswith("Free to enter, no purchase needed.")
 
-    def test_passes_with_wording_and_date(self):
+    TERMS = "https://www.evolutiongolf.co.uk/pages/giveaway-terms"
+
+    def test_passes_with_wording_date_and_terms_link(self):
         caption = (
             "Win these shoes! Follow, like and tag a mate. Free to enter, no purchase needed. "
             "UK 18+ only. Closes 12 October 2026. One winner picked at random from eligible "
-            "entries. Full T&Cs at the link in bio."
+            f"entries. Full T&Cs: {self.TERMS}. This promotion is not sponsored, endorsed or run by TikTok."
         )
-        assert giveaway_check(caption) == []
+        assert giveaway_check(caption, terms_url=self.TERMS) == []
+        assert giveaway_check(caption.replace(self.TERMS, "link in bio"), terms_url=self.TERMS)
+        assert giveaway_check(caption) == ["No T&Cs link configured (giveaway.terms_url), so the giveaway can't run"]
 
     def test_fails_without_wording(self):
-        assert giveaway_check("Win these shoes! Follow and tag a mate.")
+        assert giveaway_check("Win these shoes! Follow and tag a mate.", terms_url=self.TERMS)
 
     def test_fails_with_unfilled_date(self):
         caption = (
             "Free to enter, no purchase needed. UK 18+ only. Closes [date]. One winner picked at "
-            "random from eligible entries. Full T&Cs at the link in bio."
+            f"random from eligible entries. Full T&Cs: {self.TERMS}. This promotion is not sponsored, "
+            "endorsed or run by TikTok."
         )
-        assert giveaway_check(caption)
+        assert giveaway_check(caption, terms_url=self.TERMS)
 
 
 class TestStock:
@@ -135,3 +142,41 @@ def test_unquoted_yaml_brand_is_rejected(settings):
     data = dict(settings.data, restricted_brands=yaml.safe_load("[adidas, TRUE]"))
     with pytest.raises(ConfigError):
         Settings(data=data, source=settings.source).restricted_brands
+
+
+class TestPriceClaims:
+    """Every £ figure must be true at live website price (feedback of 12 Oct 2026)."""
+
+    def test_live_prices_pass_and_member_prices_fail(self, make_line):
+        putter = make_line("PUTT", price="119", rrp=None, member="77.35")
+        assert price_claim_check("This putter is £119", [putter]) == []
+        assert price_claim_check("Putter for £119.00", [putter]) == []
+        assert price_claim_check("Putters under £90", [putter])        # the 12 Oct bug: a member-price band
+        assert price_claim_check("Only £77.35 this week", [putter])    # the member price itself
+
+    def test_rounding_to_the_pound_is_fine_within_50p(self, make_line):
+        glove = make_line("G", price="25.95", rrp=None)
+        assert price_claim_check("Gloves for £26", [glove]) == []
+        assert price_claim_check("Gloves for £25", [glove])
+
+    def test_tiers_are_fixed_and_need_ten_percent_headroom(self, make_line):
+        a, b = make_line("A", price="25.95", rrp=None), make_line("B", price="39.95", rrp=None)
+        assert price_claim_check("Best gloves under £50", [a, b]) == []
+        assert "fixed price tier" in price_claim_check("Best gloves under £40", [a, b])[0]  # auto-rounded cap
+        spike = make_line("S", price="79.95", rrp=None)
+        assert "10% below" in price_claim_check("Spikeless under £75", [spike])[0]
+
+    def test_gaps_and_savings(self, make_line):
+        a, b = make_line("A", price="25.95", rrp="60"), make_line("B", price="39.95", rrp=None)
+        assert price_claim_check("£26 vs £40. Is it worth £14 more?", [a, b]) == []
+        assert price_claim_check("£60 of gloves for £26", [a, b]) == []    # compare-at saving
+        assert price_claim_check("Was £40, now £26", [a]) != []            # no such compare-at
+        close = make_line("C", price="27.95", rrp=None)
+        assert "price gap" in price_claim_check("£26 vs £28", [a, close])[0]
+
+    def test_member_discount_is_judged_per_video(self, make_line):
+        big = make_line("BIG", price="100", rrp=None, member="65")    # 35% for members
+        small = make_line("SM", price="100", rrp=None, member="85")   # 15%
+        assert member_discount_check("Up to 35% off for members", [big, small]) == []
+        assert member_discount_check("Up to 35% off for members", [small])
+        assert member_discount_check("35% off for members", [big, small])  # flat claim: every product

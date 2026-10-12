@@ -531,9 +531,26 @@ def body(ctx: JobContext) -> None:
     write_db = ctx.db()
     if write_db is None:
         log.info("Dry run: report written to %s; nothing saved or published", md_path)
+        _fail_without_metrics(gaps)
         return
     save(write_db, a, report_md)
     ctx.summary["published"] = publish(settings, report_md, slack_text(a, narrative), [md_path, feed_path])
+    _fail_without_metrics(gaps)
+
+
+class MetricsNotConnected(RuntimeError):
+    pass
+
+
+def _fail_without_metrics(gaps: list[str]) -> None:
+    """The report still goes out (members numbers are useful), but a week without
+    TikTok stats is a failed run, not a quiet one: the mix can't learn without them."""
+    missing = [g for g in gaps if g.startswith("TikTok video stats")]
+    if missing:
+        raise MetricsNotConnected(
+            "Report published with NO TikTok metrics, so every performance number is zero and the weekly mix "
+            "can't learn. " + " ".join(missing)
+        )
 
 
 def add_args(parser) -> None:

@@ -41,6 +41,8 @@ class StockLine:
     members_units: int = 0
     flags: list[str] = field(default_factory=list)
     shopify_sku: str = ""
+    available_online: bool = True  # published to the Online Store and availableForSale
+    url: str | None = None          # product page on evolutiongolf.co.uk
 
     def __post_init__(self) -> None:
         self.shopify_sku = self.shopify_sku or self.sku
@@ -48,6 +50,11 @@ class StockLine:
     @property
     def units_total(self) -> int:
         return sum(self.units_by_location.values())
+
+    @property
+    def buyable_online(self) -> bool:
+        """Someone can find and buy it on the website right now."""
+        return self.status.upper() == "ACTIVE" and self.available_online and self.units_total > 0
 
     @property
     def in_portal(self) -> bool:
