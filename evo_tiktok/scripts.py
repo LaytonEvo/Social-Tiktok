@@ -37,6 +37,20 @@ FORMAT_NAMES = {
 }
 CLEARANCE_FORMATS = {"value_comparison", "size_roulette", "giveaway"}
 
+# One shot of the outline: how long it runs, what's in frame and what the person
+# does, the exact words said (empty for none) and the on-screen text shown over it.
+SHOT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "seconds": {"type": "integer"},
+        "film": {"type": "string"},
+        "say": {"type": "string"},
+        "on_screen": {"type": "string"},
+    },
+    "required": ["seconds", "film", "say", "on_screen"],
+    "additionalProperties": False,
+}
+
 SCRIPT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -47,17 +61,17 @@ SCRIPT_SCHEMA = {
                 "properties": {
                     "format": {"type": "string", "enum": list(FORMATS)},
                     "hook": {"type": "string"},
-                    "shot_list": {"type": "array", "items": {"type": "string"}},
+                    "setup": {"type": "string"},
+                    "shot_list": {"type": "array", "items": SHOT_SCHEMA},
                     "on_screen_text": {"type": "array", "items": {"type": "string"}},
                     "caption": {"type": "string"},
                     "hashtags": {"type": "array", "items": {"type": "string"}},
                     "featured_skus": {"type": "array", "items": {"type": "string"}},
                     "cta": {"type": "string"},
-                    "est_length_seconds": {"type": "integer"},
                 },
                 "required": [
-                    "format", "hook", "shot_list", "on_screen_text", "caption",
-                    "hashtags", "featured_skus", "cta", "est_length_seconds",
+                    "format", "hook", "setup", "shot_list", "on_screen_text", "caption",
+                    "hashtags", "featured_skus", "cta",
                 ],
                 "additionalProperties": False,
             },
@@ -428,6 +442,45 @@ TIKTOK_DISCLAIMER_RE = re.compile(
 CHOOSE_SIZE_RE = re.compile(r"\b(?:choose|pick)\s+(?:your|their|a|the)\s+(?:own\s+)?size\b", re.IGNORECASE)
 
 
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9£%]+", " ", (text or "").lower()).strip()
+
+
+def length_seconds(s: dict) -> int:
+    return sum(int(shot.get("seconds") or 0) for shot in s["shot_list"])
+
+
+def outline_check(s: dict) -> list[str]:
+    """The outline must leave nothing to guess: timed shots that open on the hook,
+    with every on-screen line placed on a shot and nothing else on screen."""
+    e: list[str] = []
+    shots, screen = s["shot_list"], s["on_screen_text"]
+    if not 3 <= len(shots) <= 6:
+        e.append("shot_list needs 3–6 shots")
+    if not s.get("setup", "").strip():
+        e.append("setup must say where to film, the background and who is on camera")
+    if not shots:
+        return e
+    if any(int(shot["seconds"]) < 1 for shot in shots):
+        e.append("every shot needs a length of at least 1 second")
+    if any(not shot["film"].strip() for shot in shots):
+        e.append("every shot must say what to film")
+    total = length_seconds(s)
+    if not 15 <= total <= 35:
+        e.append(f"shots add up to {total}s; the video must be 15–35s")
+    if int(shots[0]["seconds"]) > 3 or _norm(s["hook"]) not in _norm(shots[0]["say"]):
+        e.append("shot 1 must be 3 seconds or less and say the hook word for word")
+    placed = {_norm(shot["on_screen"]) for shot in shots if shot["on_screen"].strip()}
+    lines = {_norm(t) for t in screen}
+    unplaced = [t for t in screen if _norm(t) not in placed]
+    if unplaced:
+        e.append(f"put each on-screen line on a shot; not placed: {'; '.join(unplaced)}")
+    extra = [shot["on_screen"] for shot in shots if shot["on_screen"].strip() and _norm(shot["on_screen"]) not in lines]
+    if extra:
+        e.append(f"shots may only show lines from on_screen_text; also shown: {'; '.join(extra)}")
+    return e
+
+
 def featured_lines(s: dict, plan: Plan) -> list[StockLine]:
     return [plan.stock_by_sku[k] for k in s["featured_skus"] if k in plan.stock_by_sku]
 
@@ -437,8 +490,10 @@ def check_script(s: dict, plan: Plan, settings: Settings, roulette_size: tuple[s
     fmt = s.get("format")
     caption, screen = s["caption"], s["on_screen_text"]
     public = "\n".join([caption, " ".join(s["hashtags"]), *screen])
-    claims = "\n".join([s["hook"], *screen, caption, s["cta"]])  # everything said or shown
-    everything = "\n".join([public, s["hook"], s["cta"], *s["shot_list"]])
+    shots = s["shot_list"]
+    said = [shot["say"] for shot in shots if shot["say"].strip()]
+    claims = "\n".join([s["hook"], *said, *screen, caption, s["cta"]])  # everything said or shown
+    everything = "\n".join([public, s["hook"], s["cta"], s["setup"], *(f"{x['film']}\n{x['say']}" for x in shots)])
     lines = featured_lines(s, plan)
     featured = {l.sku for l in plan.pool}
     e: list[str] = []
@@ -452,16 +507,13 @@ def check_script(s: dict, plan: Plan, settings: Settings, roulette_size: tuple[s
     # Structure
     if len(s["hook"].split()) >= 12:
         e.append("hook must be under 12 words")
-    if not 3 <= len(s["shot_list"]) <= 6:
-        e.append("shot_list needs 3–6 shots")
+    e += outline_check(s)
     if not 1 <= len(screen) <= 3:
         e.append("on_screen_text needs 1–3 lines")
     if fmt != "giveaway" and len(caption) > 150:
         e.append(f"caption is {len(caption)} characters; max 150")
     if not 3 <= len(s["hashtags"]) <= 5 or not all(h.startswith("#") for h in s["hashtags"]):
         e.append("hashtags need 3–5 tags, each starting with #")
-    if not 15 <= int(s["est_length_seconds"]) <= 35:
-        e.append("est_length_seconds must be 15–35")
     # Format rules
     if fmt in CLEARANCE_FORMATS:
         if not s["featured_skus"]:
@@ -562,6 +614,8 @@ def generate(llm: JSONModel, settings: Settings, plan: Plan, history: list[dict]
     for attempt in (1, 2):
         data, content = llm.complete_json(prompt.system, messages, SCRIPT_SCHEMA, max_tokens=16000)
         scripts = data["scripts"]
+        for s in scripts:
+            s["est_length_seconds"] = length_seconds(s)
         errors = validate_scripts(scripts, plan, settings)
         if not errors:
             log.info("Scripts passed validation on attempt %d", attempt)
@@ -628,25 +682,31 @@ def history_rows(db, week_start: date) -> list[dict]:
     return out
 
 
-def save_content_log(db, plan: Plan, scripts: list[dict]) -> None:
+def save_content_log(db, plan: Plan, scripts: list[dict], settings: Settings) -> None:
+    from . import production
+
     created = datetime.now(timezone.utc).isoformat()
+    c = production.cfg(settings)
     db.execute("DELETE FROM content_log WHERE week_start = ? AND status = 'planned'", (plan.week_start.isoformat(),))
-    for n, s in enumerate(scripts, 1):
+    for n, (s, when) in enumerate(zip(scripts, production.schedule(plan, scripts, settings)), 1):
         size = s.get("roulette_size")
         db.execute(
             "INSERT INTO content_log (week_start, script_no, format, hook, on_screen_text, caption, hashtags, "
-            "featured_skus, roulette_size, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?) "
+            "featured_skus, roulette_size, status, setup, shots, film_by, post_on, filmer, editor, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (week_start, script_no) DO NOTHING",
             (
                 plan.week_start.isoformat(), n, s["format"], s["hook"], "\n".join(s["on_screen_text"]),
-                s["caption"], " ".join(s["hashtags"]), json.dumps(s["featured_skus"]), size, created,
+                s["caption"], " ".join(s["hashtags"]), json.dumps(s["featured_skus"]), size,
+                s["setup"], production.outline_json(s), when["film_by"].isoformat(), when["post_on"].isoformat(),
+                c.get("filmer") or None, c.get("editor") or None, created,
             ),
         )
     db.commit()
 
 
 def body(ctx: JobContext) -> None:
-    from . import pack, slack
+    from . import pack, production, slack
 
     settings = ctx.settings
     tz = ZoneInfo(settings["timezone"])
@@ -675,14 +735,19 @@ def body(ctx: JobContext) -> None:
                  r["script"], r["hook"], r["product"], r["live_price"], r["price_check"],
                  "kept" if r["kept"] else "DROPPED")
     out_dir = ROOT / settings["outputs"].get("pack_dir", "out/packs") / week_start.isoformat()
-    md_path, pdf_path = pack.write_pack(out_dir, plan, scripts, dropped, rows)
+    md_path, pdf_path = pack.write_pack(out_dir, plan, scripts, dropped, rows, settings)
     ctx.summary.update(pack_markdown=str(md_path), pack_pdf=str(pdf_path), scripts=len(scripts),
                        dropped=[{"hook": s["hook"], "errors": s["errors"]} for s in dropped])
     db = ctx.db()
     if db is None:
         log.info("Dry run: pack written to %s; nothing published or logged to content_log", out_dir)
         return
-    save_content_log(db, plan, scripts)
+    save_content_log(db, plan, scripts, settings)
+    try:
+        ctx.summary["production_rows"] = production.publish_week(settings, plan, scripts)
+    except Exception as exc:  # the pack still publishes; say loudly that the tracker didn't update
+        log.error("Production tab not updated: %s", exc)
+        ctx.summary["production_rows"] = f"failed: {exc}"
     title = pack.title(plan)
     ctx.summary["published"] = publish(
         settings, md_path.read_text(encoding="utf-8"), slack.pack_summary(plan), [md_path, pdf_path],

@@ -72,13 +72,12 @@ def good_scripts(plan) -> list[dict]:
         s = {
             "format": fmt,
             "hook": "Which one would you pick?",
-            "shot_list": ["Wide shot of the rail", "Close-up on fabric", "Pick one up and point"],
+            "setup": "Shop floor counter, plain wall behind, daylight. Hands only, products laid side by side.",
             "on_screen_text": ["Which one?"],
             "caption": "Comment your pick, link in bio.",
             "hashtags": ["#golf", "#golfuk", "#golfclothes"],
             "featured_skus": ["POLO-M", "JKT-L"],
             "cta": "Join the Evo Members Club, link in bio",
-            "est_length_seconds": 25,
         }
         if fmt == "value_comparison":
             s.update(next(comparisons))
@@ -104,8 +103,24 @@ def good_scripts(plan) -> list[dict]:
                 caption="Three set-up mistakes we see every week. Which one are you guilty of?",
                 featured_skus=["TROLLEY-M5"],
             )
+        s["shot_list"] = outline(s)
         out.append(s)
     return out
+
+
+def outline(s: dict) -> list[dict]:
+    """Timed shots that open on the hook and place every on-screen line once."""
+    screen = s["on_screen_text"]
+    shots = [{"seconds": 3, "film": "Close-up: hand lifts the first product to camera", "say": s["hook"],
+              "on_screen": screen[0]}]
+    for line in screen[1:]:
+        shots.append({"seconds": 6, "film": "Close-up on the label and fabric", "say": "", "on_screen": line})
+    while len(shots) < 3:
+        shots.append({"seconds": 8, "film": "Wide: both products side by side, hand points to each", "say":
+                      "Which one would you pick?", "on_screen": ""})
+    shots.append({"seconds": 6, "film": "Phone screen showing the Members Club page", "say":
+                  "Join the Members Club, link in bio.", "on_screen": ""})
+    return shots
 
 
 class FakeLLM:
@@ -164,8 +179,8 @@ def test_roulette_sizes_need_three_pairs_and_no_repeats(plan, settings, lines):
 def test_giveaway_and_trolleys(plan):
     # The prize is the shoe in two sizes, so the winner chooses; never a lone size.
     assert {l.sku for l in plan.giveaway_lines} == {"SHOE-9", "SHOE-10"}
-    assert plan.giveaway_post == date(2026, 10, 6)                # Tuesday
-    assert plan.giveaway_close == date(2026, 10, 13)              # 7 days from posting
+    assert plan.giveaway_post == date(2026, 10, 8)                # Thursday, after filming and editing
+    assert plan.giveaway_close == date(2026, 10, 15)              # 7 days from posting
     assert plan.terms_url == TERMS
     assert [l.sku for l in plan.trolleys] == ["TROLLEY-M5"]  # the trolley bag is an accessory
 
@@ -195,7 +210,7 @@ def test_prompt_has_live_prices_and_ideas_but_no_member_bands(settings, plan, ma
     ideas = scripts.price_ideas(plan.pool)
     assert {"gap", "saving", "tier"} <= set(ideas)
     assert ideas["saving"] and all(i["was"] != i["price"] for i in ideas["saving"])
-    assert TERMS in prompt.user and "Tuesday 6 October 2026" in prompt.user
+    assert TERMS in prompt.user and "Thursday 8 October 2026" in prompt.user
     assert "Free to enter, no purchase needed" in prompt.system  # CONTENT_RULES loaded
     assert "{{" not in prompt.system + prompt.user
 
@@ -238,16 +253,20 @@ def _break(plan, index, **changes):
         (0, {"featured_skus": ["POLO-M"]}, "at least 2 different products"),
         (0, {"featured_skus": ["SHOE-9", "SHOE-10"]}, "colourways"),
         # 6: giveaway caption must link the T&Cs, carry the TikTok line and let the winner choose a size
-        (5, {"caption": "Win! " + free_entry_wording().replace("[date]", "13 October 2026")
+        (5, {"caption": "Win! " + free_entry_wording().replace("[date]", "15 October 2026")
              .replace("[terms]", "link in bio")}, "T&Cs"),
         (0, {"caption": "RRP £60, members pay less", "featured_skus": ["POLO-NORRP"]}, "no RRP"),
-        (0, {"shot_list": ["Film it", "Add an AI voiceover"]}, "Real footage"),
+        (0, {"setup": "Film the products, then add an AI voiceover"}, "Real footage"),
+        # the outline leaves nothing to guess
+        (0, {"setup": " "}, "setup must say"),
+        (0, {"hook": "£35 vs £70. Which is better?"}, "say the hook word for word"),
+        (0, {"on_screen_text": ["£35 or £70?", "A line no shot shows"]}, "not placed"),
         (0, {"hook": "one two three four five six seven eight nine ten eleven twelve"}, "hook"),
         (0, {"caption": "x" * 151}, "max 150"),
         (3, {"featured_skus": ["SHOE-10"]}, "aren't UK9 footwear"),
         (3, {"on_screen_text": ["Size Roulette", "Members only"], "caption": "Every pair left"}, "say the size"),
         (5, {"caption": "Win a pair! Follow and tag a mate."}, "free-entry wording"),
-        (5, {"caption": "Win a pair! " + free_entry_wording().replace("[date]", "13 October 2026")
+        (5, {"caption": "Win a pair! " + free_entry_wording().replace("[date]", "15 October 2026")
              .replace("[terms]", TERMS)}, "chooses their size"),
         (6, {"caption": "Motocaddy M5 now £999"}, "Price or discount"),
     ],

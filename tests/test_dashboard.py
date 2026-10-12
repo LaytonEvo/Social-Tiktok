@@ -14,6 +14,9 @@ class FakeSheets:
     def __init__(self):
         self.tabs, self.written, self.requests = {}, {}, []
 
+    def tab_id(self, sheet_id, title):
+        return self.tabs.get(title)
+
     def ensure_tab(self, sheet_id, title):
         return self.tabs.setdefault(title, 42)
 

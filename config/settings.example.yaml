@@ -34,7 +34,7 @@ roulette:
 giveaway:
   sku: null            # pin a prize SKU; otherwise the highest-RRP eligible product
   terms_url: null      # link to the full giveaway T&Cs; no giveaway runs without it
-  post_after_days: 1   # planned posting day: Tuesday of the filming week
+  post_after_days: 3   # planned posting day: Thursday, the first posting day after filming and editing
   entry_days: 7        # entries stay open at least 7 days from posting (minimum 7)
   min_sizes: 3         # a sized prize needs this many sizes in stock so the winner can choose
 
@@ -140,6 +140,15 @@ pilot_gate:
 
 member_prices:
   source: luke_api     # GET members.api_url/api/reporting/member-products (MEMBERS_REPORTING_API_KEY)
+
+production:            # the Production tab: one row per video, owned by the team
+  sheet_id: null        # defaults to the dashboard Sheet (DASHBOARD_SHEET_ID)
+  tab: Production
+  film_day: 1           # days after Monday: film everything on Tuesday
+  edit_by_day: 2        # edited by Wednesday
+  first_post_day: 3     # first video posts Thursday, then one a day
+  filmer: Alex          # default owners; change them per video in the tab
+  editor: ""            # who edits? leave blank until agreed
 
 dashboard:
   sheet_id: null              # or set DASHBOARD_SHEET_ID
