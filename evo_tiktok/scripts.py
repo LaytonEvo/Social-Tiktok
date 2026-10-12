@@ -81,6 +81,9 @@ SCRIPT_SCHEMA = {
     "additionalProperties": False,
 }
 
+# Seven outlined scripts plus the model's thinking; the 16k default ran out on the first outlined pack.
+SCRIPT_MAX_TOKENS = 64000
+
 TROLLEY_RE = re.compile(r"\btrolley", re.IGNORECASE)
 TROLLEY_ACCESSORY_RE = re.compile(
     r"\b(?:bag|cover|holder|umbrella|accessor\w*|seat|scorecard|cup|net|mitts?|tee)\b", re.IGNORECASE
@@ -612,7 +615,7 @@ def generate(llm: JSONModel, settings: Settings, plan: Plan, history: list[dict]
     prompt = load_prompt("script_generator", prompt_values(settings, plan, history))
     messages: list[dict] = [{"role": "user", "content": prompt.user}]
     for attempt in (1, 2):
-        data, content = llm.complete_json(prompt.system, messages, SCRIPT_SCHEMA, max_tokens=16000)
+        data, content = llm.complete_json(prompt.system, messages, SCRIPT_SCHEMA, max_tokens=SCRIPT_MAX_TOKENS)
         scripts = data["scripts"]
         for s in scripts:
             s["est_length_seconds"] = length_seconds(s)
