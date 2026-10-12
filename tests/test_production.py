@@ -6,7 +6,7 @@ import pytest
 from evo_tiktok import pack, production, scripts, stock
 from evo_tiktok.config import Settings
 from evo_tiktok.db import Database
-from tests.test_scripts import FIXTURE, MONDAY, good_scripts, with_giveaway
+from test_scripts import FIXTURE, MONDAY, good_scripts, with_giveaway
 
 
 class FakeSheets:
