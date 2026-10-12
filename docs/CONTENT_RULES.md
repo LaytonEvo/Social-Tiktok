@@ -12,24 +12,26 @@ The prompts load this file. Change it here, not in code.
 
 | Format | What it is | Must include |
 | --- | --- | --- |
-| Value comparison | "Best [product] under £[member price band]", where viewers comment their pick | The price band is a member price range, never tied to a named brand on screen |
+| Value comparison | Two or more different products (different models, never colourways of one) from different brands or at clearly different prices; viewers comment their pick | A price gap ("£26 vs £40"), a real saving ("£60 gloves for £26") or a fixed tier ("under £50"), all at live website prices |
 | Size Roulette | Every pair left in one size, one size per post | Size, "members only", "when it's gone, it's gone" (only if true) |
-| Giveaway | Follow, like and tag to win one featured item | Free-entry wording (below), closing date, UK only, winner chosen at random |
+| Giveaway | Follow, like and tag to win one featured item | Free-entry wording (below) with the closing date and T&Cs link; entries open 7+ days from posting; a sized prize lets the winner choose their size |
 | Trolley | Tips, setups, comparisons for electric trolleys | No clearance pricing; trolley content builds the long-term audience |
 
 ## Price and brand rules
 
-1. Never put a brand name and a price or discount in the same caption, on-screen text or reply.
-2. Use "40–50% off for members" as the default claim. Use "up to 50% off" only when the validator confirms enough featured lines are at 50%.
-3. Show RRP comparisons only on the Members Club pages, never in TikTok content.
-4. Urgency ("ends Sunday", "limited pairs") must be true and match the drop schedule.
-5. Products may appear in footage. Don't use brand logos or campaign imagery as graphics.
+1. Never put a brand name and a price or discount in the same caption, on-screen text or reply. The spoken hook may name a brand.
+2. Every £ figure is the live price on evolutiongolf.co.uk (what anyone pays), never the member price, cost or a rounded band. A "was" price must be Shopify's compare-at price, shown only where there's a real saving.
+3. "Under £X" uses fixed tiers only (£30, £50, £75, £100, £150, £200), with every featured item at least 10% below the tier. Two quoted prices must be at least 20% apart.
+4. Member discounts: "up to X% off for members" only when a product in that video gets X%. State the real figure for that video; never one figure for every video.
+5. Urgency ("ends Sunday", "limited pairs") must be true and match the drop schedule.
+6. Products may appear in footage. Don't use brand logos or campaign imagery as graphics.
+7. Only feature products that are live and in stock on the website.
 
 ## Giveaway free-entry wording
 
 Use this text in every giveaway caption:
 
-> Free to enter, no purchase needed. UK 18+ only. Closes [date]. One winner picked at random from eligible entries. Full T&Cs at the link in bio.
+> Free to enter, no purchase needed. UK 18+ only. Closes [date]. One winner picked at random from eligible entries. Full T&Cs: [terms]. This promotion is not sponsored, endorsed or run by TikTok.
 
 ## Reply rules
 

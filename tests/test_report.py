@@ -304,7 +304,10 @@ def test_report_goes_out_without_tiktok_stats(job):
         def complete_json(self, *a, **k):
             raise AssertionError("no commentary without video stats")
 
-    assert report.main(argv, llm=NoCalls(), settings=s) == 0
+    # The report still goes out, but the run fails loudly: no metrics means the mix can't learn.
+    assert report.main(argv, llm=NoCalls(), settings=s) == 1
+    record = json.loads((tmp / "logs" / "runs.jsonl").read_text().splitlines()[-1])
+    assert record["status"] == "failed" and "NO TikTok metrics" in record["error"]
     md = posted[0][1]
     assert "TikTok video stats not available this week" in md
     assert "TikTok Ads spend not available this week" in md

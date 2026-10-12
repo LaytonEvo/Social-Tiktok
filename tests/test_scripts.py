@@ -16,6 +16,21 @@ FIXTURE = Path(__file__).parent / "fixtures" / "shopify_bulk.jsonl"
 MONDAY = date(2026, 10, 5)
 
 
+TERMS = "https://www.evolutiongolf.co.uk/pages/giveaway-terms"
+
+
+def with_giveaway(settings) -> Settings:
+    """Settings with a T&Cs link, and a prize allowed with two sizes (the fixture's shoes)."""
+    data = copy.deepcopy(settings.data)
+    data["giveaway"].update(terms_url=TERMS, min_sizes=2)
+    return Settings(data=data, source=settings.source, env=dict(settings.env))
+
+
+@pytest.fixture
+def settings(settings):
+    return with_giveaway(settings)
+
+
 @pytest.fixture
 def lines(settings):
     records = [json.loads(l) for l in FIXTURE.read_text().splitlines() if l.strip()]
@@ -27,23 +42,47 @@ def plan(settings, lines):
     return scripts.build_plan(settings, lines, [], MONDAY)
 
 
+# The fixture's featured stock: UA polo £35 (was £60), adidas jacket £70 (was £120),
+# adidas Adipower shoes £89.95 (was £149.95) in UK9 and UK10.
+VALUE_COMPARISONS = [
+    {  # price gap
+        "hook": "£35 vs £70. Which would you buy?",
+        "on_screen_text": ["£35 or £70?", "Up to 40% off for members"],
+        "caption": "Polo or jacket? Comment your pick. Members save up to 40%, link in bio.",
+    },
+    {  # saving (Shopify compare-at)
+        "hook": "A £60 polo for £35?",
+        "on_screen_text": ["Was £60, now £35"],
+        "caption": "Polo or jacket for the cold mornings? Comment your pick, link in bio.",
+    },
+    {  # fixed tier
+        "hook": "Best layers under £100?",
+        "on_screen_text": ["Golf layers under £100"],
+        "caption": "Two layers, both under £100. Which one? Link in bio.",
+    },
+]
+
+
 def good_scripts(plan) -> list[dict]:
     """A pack that passes every check, built from the plan."""
     sizes = iter(plan.roulette_sizes)
+    comparisons = iter(VALUE_COMPARISONS)
     out = []
     for fmt in plan.order:
         s = {
             "format": fmt,
             "hook": "Which one would you pick?",
             "shot_list": ["Wide shot of the rail", "Close-up on fabric", "Pick one up and point"],
-            "on_screen_text": ["Best golf polo under £40?", "40–50% off for members"],
-            "caption": "Best polo under £40? Comment your pick. Members save 40–50%, link in bio.",
+            "on_screen_text": ["Which one?"],
+            "caption": "Comment your pick, link in bio.",
             "hashtags": ["#golf", "#golfuk", "#golfclothes"],
-            "featured_skus": ["POLO-M"],
+            "featured_skus": ["POLO-M", "JKT-L"],
             "cta": "Join the Evo Members Club, link in bio",
             "est_length_seconds": 25,
         }
-        if fmt == "size_roulette":
+        if fmt == "value_comparison":
+            s.update(next(comparisons))
+        elif fmt == "size_roulette":
             size, _ = next(sizes)
             skus = [l.sku for l in plan.pool if scripts.size_label(l.size) == size]
             s.update(
@@ -52,11 +91,12 @@ def good_scripts(plan) -> list[dict]:
                 featured_skus=skus,
             )
         elif fmt == "giveaway":
-            wording = free_entry_wording().replace("[date]", f"{plan.giveaway_close:%-d %B %Y}")
+            wording = (free_entry_wording().replace("[date]", f"{plan.giveaway_close:%-d %B %Y}")
+                       .replace("[terms]", plan.terms_url))
             s.update(
                 on_screen_text=["WIN these", "Follow, like, tag a mate"],
-                caption="Win a pair! Follow, like and tag a mate. " + wording,
-                featured_skus=[plan.giveaway.sku],
+                caption="Win a pair, and choose your size! Follow, like and tag a mate. " + wording,
+                featured_skus=[plan.giveaway_lines[0].sku],
             )
         elif fmt == "trolley":
             s.update(
@@ -122,19 +162,49 @@ def test_roulette_sizes_need_three_pairs_and_no_repeats(plan, settings, lines):
 
 
 def test_giveaway_and_trolleys(plan):
-    assert plan.giveaway.sku in {l.sku for l in plan.pool}
-    assert plan.giveaway_close == date(2026, 10, 11)
+    # The prize is the shoe in two sizes, so the winner chooses; never a lone size.
+    assert {l.sku for l in plan.giveaway_lines} == {"SHOE-9", "SHOE-10"}
+    assert plan.giveaway_post == date(2026, 10, 6)                # Tuesday
+    assert plan.giveaway_close == date(2026, 10, 13)              # 7 days from posting
+    assert plan.terms_url == TERMS
     assert [l.sku for l in plan.trolleys] == ["TROLLEY-M5"]  # the trolley bag is an accessory
 
 
-def test_prompt_has_skus_but_no_rrps(settings, plan):
+def test_no_giveaway_without_terms_or_a_choosable_prize(settings, lines):
+    no_terms = copy.deepcopy(settings.data)
+    no_terms["giveaway"]["terms_url"] = None
+    p = scripts.build_plan(Settings(no_terms, settings.source), lines, [], MONDAY)
+    assert p.giveaway is None and p.mix["giveaway"] == 0 and p.mix["value_comparison"] == 4
+    assert any("T&Cs" in n for n in p.notes)
+    strict = copy.deepcopy(settings.data)
+    strict["giveaway"]["min_sizes"] = 3  # the shoe has only 2 sizes, and the polo and jacket only 1
+    p = scripts.build_plan(Settings(strict, settings.source), lines, [], MONDAY)
+    assert p.giveaway is None and any("choose" in n for n in p.notes)
+    short = copy.deepcopy(settings.data)
+    short["giveaway"]["entry_days"] = 6
+    with pytest.raises(GuardrailError, match="at least 7 days"):
+        scripts.build_plan(Settings(short, settings.source), lines, [], MONDAY)
+
+
+def test_prompt_has_live_prices_and_ideas_but_no_member_bands(settings, plan, make_line):
     values = scripts.prompt_values(settings, plan, [])
     prompt = load_prompt("script_generator", values)
     assert "SHOE-9" in prompt.user and "TROLLEY-M5" in prompt.user
-    assert "149.95" not in prompt.user and "compare" not in prompt.user.lower()
-    assert "under £90" in prompt.user
+    assert '"live_price": "£89.95"' in prompt.user and '"was_price": "£149.95"' in prompt.user
+    assert "member_price_band" not in prompt.user and "under £90" not in prompt.user
+    ideas = scripts.price_ideas(plan.pool)
+    assert {"gap", "saving", "tier"} <= set(ideas)
+    assert ideas["saving"] and all(i["was"] != i["price"] for i in ideas["saving"])
+    assert TERMS in prompt.user and "Tuesday 6 October 2026" in prompt.user
     assert "Free to enter, no purchase needed" in prompt.system  # CONTENT_RULES loaded
     assert "{{" not in prompt.system + prompt.user
+
+
+def test_metrics_note_when_tiktok_isnt_connected(settings, plan):
+    assert "No performance metrics" in plan.metrics_note and "WINDSOR_API_KEY" in plan.metrics_note
+    from evo_tiktok import pack
+    md = pack.render_markdown(plan, good_scripts(plan))
+    assert md.splitlines()[2].startswith("**⚠ No performance metrics")
 
 
 # ---------------------------------------------------------------- validation
@@ -159,6 +229,17 @@ def _break(plan, index, **changes):
         (0, {"featured_skus": ["NOPE"]}, "not in today's stock"),
         (0, {"featured_skus": ["SHOE-LIVE-9"]}, "featured pool"),
         (0, {"caption": "Up to 60% off for members"}, "up to 60%"),
+        # 1: prices must be live website prices (£22.75 would be a member price)
+        (0, {"hook": "Polos for £22.75?"}, "isn't a live website price"),
+        # 2: no auto-rounded caps; fixed tiers only, everything 10% below
+        (2, {"hook": "Best layers under £80?"}, "isn't a fixed price tier"),
+        (2, {"hook": "Best layers under £75?"}, "at least 10% below"),
+        # 3: a comparison needs different products, not one product
+        (0, {"featured_skus": ["POLO-M"]}, "at least 2 different products"),
+        (0, {"featured_skus": ["SHOE-9", "SHOE-10"]}, "colourways"),
+        # 6: giveaway caption must link the T&Cs, carry the TikTok line and let the winner choose a size
+        (5, {"caption": "Win! " + free_entry_wording().replace("[date]", "13 October 2026")
+             .replace("[terms]", "link in bio")}, "T&Cs"),
         (0, {"caption": "RRP £60, members pay less", "featured_skus": ["POLO-NORRP"]}, "no RRP"),
         (0, {"shot_list": ["Film it", "Add an AI voiceover"]}, "Real footage"),
         (0, {"hook": "one two three four five six seven eight nine ten eleven twelve"}, "hook"),
@@ -166,6 +247,8 @@ def _break(plan, index, **changes):
         (3, {"featured_skus": ["SHOE-10"]}, "aren't UK9 footwear"),
         (3, {"on_screen_text": ["Size Roulette", "Members only"], "caption": "Every pair left"}, "say the size"),
         (5, {"caption": "Win a pair! Follow and tag a mate."}, "free-entry wording"),
+        (5, {"caption": "Win a pair! " + free_entry_wording().replace("[date]", "13 October 2026")
+             .replace("[terms]", TERMS)}, "chooses their size"),
         (6, {"caption": "Motocaddy M5 now £999"}, "Price or discount"),
     ],
 )
@@ -179,20 +262,45 @@ def test_wrong_count_fails(plan, settings):
     assert any("Expected 7 scripts" in e for e in errors)
 
 
+def test_member_discount_is_per_video(plan, settings, make_line):
+    # 7: "up to 35%" needs a product in THAT video at 35%; the polo and jacket get ~42%.
+    ok = scripts.validate_scripts(_break(plan, 0, caption="Up to 40% off for members, link in bio"), plan, settings)
+    assert ok == []
+    bad = scripts.validate_scripts(_break(plan, 0, caption="Up to 45% off for members, link in bio"), plan, settings)
+    assert any("up to 45%" in e for e in bad)
+
+
+def test_value_comparisons_must_rotate_hook_types(plan, settings):
+    pack = good_scripts(plan)
+    for i in (1, 2):
+        pack[i].update(VALUE_COMPARISONS[0])  # all three now price gaps
+    assert any("same kind of hook" in e for e in scripts.validate_scripts(pack, plan, settings))
+
+
 def test_retry_once_with_errors_then_succeed(plan, settings):
     bad = {"scripts": _break(plan, 0, caption="adidas polos £20")}
     llm = FakeLLM(bad, {"scripts": good_scripts(plan)})
-    result = scripts.generate(llm, settings, plan, [])
-    assert len(result) == 7 and len(llm.calls) == 2
+    result, dropped = scripts.generate(llm, settings, plan, [])
+    assert len(result) == 7 and dropped == [] and len(llm.calls) == 2
     retry = llm.calls[1]
     assert retry[1]["role"] == "assistant"
     assert "failed our checks" in retry[2]["content"] and "Brand 'adidas'" in retry[2]["content"]
 
 
-def test_fails_loudly_after_retry(plan, settings):
-    bad = {"scripts": _break(plan, 0, caption="adidas polos £20")}
+def test_a_video_that_still_fails_is_dropped_never_shipped(plan, settings):
+    bad = {"scripts": _break(plan, 0, hook="Polos for £22.75?")}  # a member price, not the live price
+    kept, dropped = scripts.generate(FakeLLM(bad, bad), settings, plan, [])
+    assert len(kept) == 6 and len(dropped) == 1
+    assert dropped[0]["hook"] == "Polos for £22.75?" and "live website price" in dropped[0]["errors"][0]
+    rows = scripts.price_check_rows(kept + dropped, plan)
+    assert {r["price_check"][:4] for r in rows if not r["kept"]} == {"FAIL"}
+    assert all(r["price_check"] == "pass" for r in rows if r["kept"])
+
+
+def test_fails_loudly_when_nothing_passes(plan, settings):
+    awful = {"scripts": [s | {"caption": "adidas polos £20"} for s in good_scripts(plan)]}
     with pytest.raises(GuardrailError):
-        scripts.generate(FakeLLM(bad, bad), settings, plan, [])
+        scripts.generate(FakeLLM(awful, awful), settings, plan, [])
 
 
 # --------------------------------------------------------------------- Claude
@@ -239,7 +347,7 @@ def job(settings, tmp_path, monkeypatch):
     db = Database(url)
     db.migrate()
     db.close()
-    data = copy.deepcopy(settings.data)
+    data = copy.deepcopy(with_giveaway(settings).data)
     data["outputs"]["pack_dir"] = str(tmp_path / "packs")
     s = Settings(data=data, source=settings.source, env={"DATABASE_URL": url})
     posted = []
@@ -289,3 +397,4 @@ def test_live_run_logs_planned_scripts_and_posts_to_slack(job):
     md = (tmp / "packs" / "2026-10-05" / "filming_pack.md").read_text()
     assert "- **Size Roulette sizes:** UK9 (4 pairs), UK10 (3 pairs)" in md
     assert "Free to enter, no purchase needed" in md
+    assert "## Price checks (live website prices)" in md and "| pass |" in md

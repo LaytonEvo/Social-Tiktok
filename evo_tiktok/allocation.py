@@ -158,23 +158,22 @@ def allocate(line: StockLine, settings) -> StockLine:
         flags.append("no RRP: no discount or RRP claim")
     if line.status.upper() == "DRAFT" and line.units_total > 0:
         flags.append("draft listing holding stock")
+    elif line.units_total > 0 and not line.available_online:
+        flags.append("in stock but not buyable on the website")
     if any(units > 0 for loc, units in line.units_by_location.items() if loc != "Warehouse"):
         flags.append("some units away from Warehouse")
     return line
 
 
 def featured_pool(lines: Iterable[StockLine]) -> list[StockLine]:
-    """SPEC 4.1 step 1: what we may feature, in stock with an RRP.
+    """SPEC 4.1 step 1: what we may feature: buyable on the website, with an RRP.
 
-    With the Members Club portal loaded, that's lines live in a portal deal
-    (clearance can be hidden from the public site, so storefront status doesn't
-    matter). Without it, the allocation rules' Members lines that are live on site.
+    Buyable means active, published to the Online Store and available for sale,
+    so anyone who sees the video can find it on evolutiongolf.co.uk. With the
+    Members Club portal loaded, it must also be in a live portal deal; without
+    it, the allocation rules' Members lines.
     """
     lines = list(lines)
     if any(line.in_portal for line in lines):
-        return [line for line in lines if line.in_portal and line.units_total > 0 and line.has_rrp]
-    return [
-        line
-        for line in lines
-        if line.members_routed and line.units_total > 0 and line.has_rrp and line.status.upper() == "ACTIVE"
-    ]
+        return [line for line in lines if line.in_portal and line.buyable_online and line.has_rrp]
+    return [line for line in lines if line.members_routed and line.buyable_online and line.has_rrp]

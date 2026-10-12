@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from functools import lru_cache
+from decimal import Decimal
 from pathlib import Path
 
 from .config import DOCS_DIR
@@ -114,18 +115,115 @@ def percent_off_check(text: str, featured_lines: Iterable[StockLine], threshold_
     return errors
 
 
-def honest_claim(featured_lines: Iterable[StockLine], threshold_share: float, floor_pct: int = 10) -> str:
-    """The strongest "up to X% off" the featured lines support, rounded down to 5%.
+# --------------------------------------------------------- £ figures
+#
+# Every £ figure in public text must be true at shelf price on the website: the
+# live Shopify variant price (never the member price, cost or a rounded band).
 
-    X is a discount that at least ``threshold_share`` of the lines reach, so the
-    claim passes ``up_to_claim_check``. No meaningful discount: no percentage.
+POUND_RE = re.compile(r"£\s?(\d{1,4}(?:,\d{3})*(?:\.\d{1,2})?)")
+UNDER_BEFORE_RE = re.compile(r"\b(?:under|below|less\s+than|sub)\s*$", re.IGNORECASE)
+PRICE_TIERS = (30, 50, 75, 100, 150, 200)
+TIER_MARGIN = 0.10   # every featured item must sit at least 10% below an "under £X" tier
+PRICE_GAP_MIN = 0.20  # two quoted prices must differ by at least 20%
+PENCE = Decimal("0.50")  # "£26" for £25.95 is fair; "£26" for £24.99 isn't
+
+
+def pounds(text: str) -> list[tuple[Decimal, bool]]:
+    """Each £ figure in ``text`` with whether it's an "under £X" style cap."""
+    out = []
+    for m in POUND_RE.finditer(text):
+        amount = Decimal(m.group(1).replace(",", ""))
+        out.append((amount, bool(UNDER_BEFORE_RE.search(text[: m.start()]))))
+    return out
+
+
+def _near(amount: Decimal, value: Decimal) -> bool:
+    return abs(amount - value) <= PENCE
+
+
+def price_claim_check(text: str, lines: Iterable[StockLine]) -> list[str]:
+    """Fail any £ figure that isn't true at live website price for the featured lines.
+
+    Allowed: a featured line's live price; its compare-at price when that's above
+    the price (a real saving); the gap between two featured live prices, or a
+    saving; or "under £X" where X is a fixed tier and every featured line sits at
+    least 10% below it. Two quoted live prices must be at least 20% apart.
     """
-    discounts = sorted((line.discount_pct or 0 for line in featured_lines), reverse=True)
-    if not discounts:
-        return "member-only prices"
-    need = max(1, -(-int(threshold_share * 1000) * len(discounts) // 1000))  # ceil(share * n)
-    pct = int((discounts[need - 1] + ROUNDING_PCT) // 5 * 5)
-    return f"up to {pct}% off for members" if pct >= floor_pct else "member-only prices"
+    lines = list(lines)
+    found = pounds(text)
+    if not found:
+        return []
+    if not lines:
+        return [f"£ figure(s) {', '.join(f'£{a:g}' for a, _ in found)} quoted with no featured products"]
+    live = sorted({line.price for line in lines})
+    was = sorted({line.compare_at_price for line in lines
+                  if line.compare_at_price is not None and line.compare_at_price > line.price})
+    gaps = {abs(a - b) for a in live for b in live if a != b}
+    gaps |= {line.compare_at_price - line.price for line in lines if line.compare_at_price in was}
+    errors, quoted_live = [], set()
+    for amount, capped in found:
+        if capped:
+            top = max(live)
+            if int(amount) != amount or int(amount) not in PRICE_TIERS:
+                errors.append(f"'under £{amount:g}' isn't a fixed price tier ({', '.join(f'£{t}' for t in PRICE_TIERS)})")
+            elif top > amount * Decimal(str(1 - TIER_MARGIN)):
+                errors.append(
+                    f"'under £{amount:g}' needs every featured item at least {TIER_MARGIN:.0%} below it; "
+                    f"the dearest is £{top} at live price"
+                )
+            continue
+        match = next((p for p in live if _near(amount, p)), None)
+        if match is not None:
+            quoted_live.add(match)
+            continue
+        if any(_near(amount, w) for w in was) or any(_near(amount, g) for g in gaps):
+            continue
+        errors.append(
+            f"£{amount:g} isn't a live website price of the featured products "
+            f"({', '.join(f'£{p}' for p in live)}), a real saving or the gap between them"
+        )
+    quoted = sorted(quoted_live)
+    for low, high in zip(quoted, quoted[1:]):
+        if high < low * Decimal(str(1 + PRICE_GAP_MIN)):
+            errors.append(f"£{low} vs £{high} is less than a {PRICE_GAP_MIN:.0%} price gap")
+    return errors
+
+
+def member_discount_check(text: str, lines: Iterable[StockLine]) -> list[str]:
+    """Fail a member % claim that this video's own featured products don't get.
+
+    "up to X% off" needs at least one featured product at X%; a flat "X% off"
+    (or "X-Y% off") needs every featured product at X% or more.
+    """
+    lines = list(lines)
+    discounts = [line.discount_pct or 0 for line in lines]
+    errors = []
+    for m in UP_TO_RE.finditer(text):
+        pct = float(m.group(1))
+        best = max(discounts, default=0)
+        if best < pct - ROUNDING_PCT:
+            errors.append(f"'up to {pct:g}%' but the best discount on this video's products is {best:.0f}%")
+    for m in PERCENT_OFF_RE.finditer(text):
+        if re.search(r"up\s+to\s*$", text[: m.start()], re.IGNORECASE):
+            continue
+        low = float(m.group(1))
+        worst = min(discounts, default=0)
+        if worst < low - ROUNDING_PCT:
+            errors.append(f"'{m.group(0).strip()}' but some products on this video get only {worst:.0f}%")
+    return errors
+
+
+def price_hook_type(text: str, lines: Iterable[StockLine]) -> str:
+    """Which price hook a video uses: tier, saving, gap or none."""
+    lines = list(lines)
+    found = pounds(text)
+    if any(capped for _, capped in found):
+        return "tier"
+    was = {line.compare_at_price for line in lines if line.compare_at_price and line.compare_at_price > line.price}
+    if any(_near(a, w) for a, _ in found for w in was):
+        return "saving"
+    live = {p for a, _ in found for p in {line.price for line in lines} if _near(a, p)}
+    return "gap" if len(live) >= 2 else "none"
 
 
 RRP_RE = re.compile(r"\bRRP\b|\bwas\s+£|\bretail\s+price\b|\bnormally\s+£", re.IGNORECASE)
@@ -135,7 +233,10 @@ def rrp_check(text: str, skus: Iterable[str], stock: Mapping[str, StockLine]) ->
     """Fail if the text shows an RRP for a SKU that has no compareAtPrice in Shopify."""
     if not RRP_RE.search(text):
         return []
-    missing = [sku for sku in skus if sku not in stock or not stock[sku].has_rrp]
+    missing = [
+        sku for sku in skus
+        if sku not in stock or stock[sku].compare_at_price is None or stock[sku].compare_at_price <= stock[sku].price
+    ]
     return [f"RRP shown but Shopify holds no RRP for {sku}" for sku in missing]
 
 
@@ -154,9 +255,14 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("’", "'").replace("–", "-")).strip().lower()
 
 
-def giveaway_check(text: str, wording: str | None = None) -> list[str]:
-    """Fail if a giveaway caption lacks the free-entry wording. "[date]" must be filled."""
+def giveaway_check(text: str, wording: str | None = None, terms_url: str | None = None) -> list[str]:
+    """Fail if a giveaway caption lacks the free-entry wording. "[date]" must be
+    filled, and "[terms]" is the link to the full T&Cs."""
     wording = wording or free_entry_wording()
+    if "[terms]" in wording:
+        if not terms_url:
+            return ["No T&Cs link configured (giveaway.terms_url), so the giveaway can't run"]
+        wording = wording.replace("[terms]", terms_url)
     parts = [re.escape(p) for p in _norm(wording).split("[date]")]
     pattern = r"(?!\[date\])\S.{0,40}?".join(parts)
     if re.search(pattern, _norm(text)):

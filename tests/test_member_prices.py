@@ -65,8 +65,12 @@ def test_portal_marks_live_deals_by_variant_and_prices_them(settings, make_line)
     assert glove_s.members_units == 3 and polo.members_units == 0  # the portal is the truth when it answers
     assert stats["portal"] == "live" and stats["portal_variants"] == 3
     assert stats["portal_variants_in_stock"] == 2 and stats["portal_variants_no_stock"] == 1
-    # Featured = live in the portal and in stock, even if hidden from the public site.
+    # Featured = live in the portal AND buyable on the website: the draft shoe is out.
+    assert allocation.featured_pool([glove_s, glove_m, shoe, polo]) == [glove_s]
+    shoe.status = "ACTIVE"
     assert allocation.featured_pool([glove_s, glove_m, shoe, polo]) == [glove_s, shoe]
+    shoe.available_online = False  # in stock, but not published to the Online Store
+    assert allocation.featured_pool([glove_s, glove_m, shoe, polo]) == [glove_s]
 
 
 def test_was_price_is_always_one_shopify_holds(make_line):
@@ -87,15 +91,6 @@ def test_portal_down_falls_back_to_the_rules(settings, make_line):
     stats = {}
     assert apply_member_prices([polo], MemberPriceSource(_settings(settings, key=None)), stats) == 0
     assert stats["portal"] == "not configured"
-
-
-def test_the_claim_matches_the_real_discounts(make_line):
-    small = [make_line(price="25.95", rrp=None, member="22.06") for _ in range(4)]  # 15% off
-    assert validators.honest_claim(small, 0.30) == "up to 15% off for members"
-    big = [make_line(sku=f"S{i}", price="100", rrp=None, member=str(m)) for i, m in enumerate([45, 50, 60, 90])]
-    assert validators.honest_claim(big, 0.30) == "up to 50% off for members"  # 2 of 4 lines reach 50%
-    assert validators.honest_claim([make_line(price="40", rrp=None, member="38")], 0.30) == "member-only prices"
-    assert validators.honest_claim([], 0.30) == "member-only prices"
 
 
 def test_unsupported_percent_off_claims_fail(make_line):

@@ -65,7 +65,7 @@ def save_snapshot(db, snapshot_id: str, taken_at: str, lines: list[StockLine]) -
             str(l.member_price) if l.member_price is not None else None, str(l.unit_cost),
             l.cost_estimated, l.units_by_location.get("Warehouse", 0),
             l.units_by_location.get("Burley Golf Club", 0), l.units_total, l.members_units,
-            id(l) in featured, "; ".join(l.flags),
+            id(l) in featured, "; ".join(l.flags), l.available_online, l.url,
         )
         for l in lines
         if l.units_total > 0
@@ -74,8 +74,8 @@ def save_snapshot(db, snapshot_id: str, taken_at: str, lines: list[StockLine]) -
         "INSERT INTO stock_snapshot (snapshot_id, taken_at, sku, variant_id, product_title, variant_title, "
         "vendor, product_type, status, category, season, age, size, size_band, junior, price, "
         "compare_at_price, member_price, unit_cost, cost_estimated, units_warehouse, units_burley, "
-        "units_total, members_units, featured, flags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "units_total, members_units, featured, flags, available_online, url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     db.commit()
@@ -110,6 +110,7 @@ SNAPSHOT_COLUMNS = (
     "taken_at", "sku", "variant_id", "product_title", "variant_title", "vendor", "product_type", "status",
     "category", "season", "age", "size", "size_band", "junior", "price", "compare_at_price", "member_price",
     "unit_cost", "cost_estimated", "units_warehouse", "units_burley", "members_units", "flags",
+    "available_online", "url",
 )
 
 
@@ -142,6 +143,9 @@ def load_latest_snapshot(db, max_age_hours: float = 30) -> list[StockLine] | Non
             units_by_location={"Warehouse": row["units_warehouse"] or 0,
                                "Burley Golf Club": row["units_burley"] or 0},
             member_price=dec(row["member_price"]),
+            # Snapshots saved before migration 004 have no value: treat as buyable.
+            available_online=row["available_online"] is None or bool(row["available_online"]),
+            url=row["url"],
         )
         line.category, line.season, line.age = row["category"], row["season"], row["age"]
         line.size_band, line.junior = row["size_band"], bool(row["junior"])

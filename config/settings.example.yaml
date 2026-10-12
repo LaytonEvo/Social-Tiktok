@@ -32,8 +32,11 @@ roulette:
   no_repeat_weeks: 3
 
 giveaway:
-  sku: null            # pin a prize SKU; otherwise the highest-RRP featured line
-  closes_after_days: 6 # Sunday of the filming week
+  sku: null            # pin a prize SKU; otherwise the highest-RRP eligible product
+  terms_url: null      # link to the full giveaway T&Cs; no giveaway runs without it
+  post_after_days: 1   # planned posting day: Tuesday of the filming week
+  entry_days: 7        # entries stay open at least 7 days from posting (minimum 7)
+  min_sizes: 3         # a sized prize needs this many sizes in stock so the winner can choose
 
 llm:
   refusal_fallback: [scripts, report]  # jobs that use the server-side refusal fallback;
