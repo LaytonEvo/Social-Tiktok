@@ -55,6 +55,16 @@ python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.
 - `evo_tiktok/llm.py`: loads `prompts/*.md` and calls Claude with a JSON schema. The model comes from `models.scripts`.
 - `evo_tiktok/pack.py`: the Markdown and PDF pack. Live runs add the pack to the shared Google Doc (`evo_tiktok/publish.py`).
 - Live runs add 7 `content_log` rows with `status=planned`. Re-running the same week replaces them.
+- Each script carries an outline that leaves nothing to guess: a setup line (where, background, who's on camera)
+  and 3–6 timed shots, each saying what to film, the exact words to say and which on-screen line goes over it.
+  The checks fail a script whose first shot doesn't say the hook word for word, whose shots don't add up to 15–35s,
+  or whose on-screen lines aren't each placed on a shot. The pack adds a "Before you film" checklist and a pull
+  list of the week's stock grouped by location.
+- `evo_tiktok/production.py`: live runs add one row per video to the **Production** tab of the dashboard Sheet:
+  outline, stock to pull, caption, film-by / edit-by / post-on dates (`production` in settings), owners and a
+  Status dropdown (To film, Filmed, Edited, Approved, Posted, Dropped). The team edits Filmer, Editor, Status,
+  TikTok link and Notes; a re-run keeps them. After every job run the tab's statuses, owners and links are copied
+  into `content_log`, so pasting the TikTok link there does what `python -m evo_tiktok.posts` does.
 
 ## Reply drafter (M2)
 

@@ -82,12 +82,19 @@ class Sheets:
         resp = self.session.get(f"{API}/{sheet_id}/values/{quote(range_)}")
         return self._check(resp).get("values", [])
 
-    def ensure_tab(self, sheet_id: str, title: str) -> int:
-        """The numeric ID of the tab called ``title``, adding the tab if it's missing."""
+    def tab_id(self, sheet_id: str, title: str) -> int | None:
+        """The numeric ID of the tab called ``title``, or None if there isn't one."""
         meta = self._check(self.session.get(f"{API}/{sheet_id}", params={"fields": "sheets.properties"}))
         for sheet in meta.get("sheets", []):
             if sheet["properties"]["title"] == title:
                 return sheet["properties"]["sheetId"]
+        return None
+
+    def ensure_tab(self, sheet_id: str, title: str) -> int:
+        """The numeric ID of the tab called ``title``, adding the tab if it's missing."""
+        existing = self.tab_id(sheet_id, title)
+        if existing is not None:
+            return existing
         reply = self.batch_update(sheet_id, [{"addSheet": {"properties": {"title": title}}}])
         return reply["replies"][0]["addSheet"]["properties"]["sheetId"]
 
@@ -100,6 +107,16 @@ class Sheets:
         self._check(
             self.session.put(
                 f"{API}/{sheet_id}/values/{quote(tab + '!A1')}",
+                params={"valueInputOption": "RAW"},
+                json={"values": rows},
+            )
+        )
+
+    def update(self, sheet_id: str, range_: str, rows: list[list]) -> None:
+        """Overwrite the cells in ``range_``."""
+        self._check(
+            self.session.put(
+                f"{API}/{sheet_id}/values/{quote(range_)}",
                 params={"valueInputOption": "RAW"},
                 json={"values": rows},
             )

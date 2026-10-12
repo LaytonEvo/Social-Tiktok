@@ -37,6 +37,12 @@ def body(ctx: JobContext) -> None:
         (post_id, datetime.now(timezone.utc).isoformat(), ctx.args.week, ctx.args.script),
     )
     ctx.db().commit()
+    from . import production
+
+    try:
+        ctx.summary["production_tab"] = production.mark_posted(ctx.settings, ctx.args.week, ctx.args.script, ctx.args.post)
+    except Exception as exc:  # the database is the record; the tab catches up on the next sync
+        log.warning("Couldn't mark the video posted in the Production tab: %s", exc)
 
 
 def add_args(parser) -> None:

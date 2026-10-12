@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from . import metrics
 from .config import Settings
+from .production import STATUS_TO_LABEL
 from .runner import JobContext, run_job
 
 log = logging.getLogger(__name__)
@@ -258,7 +259,8 @@ def sheet_rows(data: dict) -> tuple[list[list], list[int]]:
     if c:
         rows.append(["#", "Format", "Hook", "Status", "Views"])
         for sc in c["scripts"]:
-            rows.append([sc["no"], sc["format"], sc["hook"], sc["status"], _n(sc["views"])])
+            rows.append([sc["no"], sc["format"], sc["hook"], STATUS_TO_LABEL.get(sc["status"], sc["status"]),
+                         _n(sc["views"])])
     rows.append([])
 
     r = data["replies"]
@@ -319,6 +321,16 @@ def refresh(settings: Settings, db) -> bool:
     if not sheet_id(settings):
         log.warning("Dashboard not refreshed: DASHBOARD_SHEET_ID is empty on this service")
         return False
+    from . import production
+
+    try:
+        production.sync(settings, db)
+    except Exception as exc:  # a bad tab must not stop the dashboard
+        log.warning("Production tab not synced: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
     try:
         data = build(db, settings)
         save(db, data)
