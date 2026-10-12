@@ -78,13 +78,16 @@ class ClaudeJSON:
             messages=messages,
             output_config=output_config,
         )
+        # Streamed so a large max_tokens (thinking counts towards it) can't hit the HTTP timeout.
         if self.fallback:
             # If a safety classifier declines, the API retries on a suitable model.
-            response = self.client.beta.messages.create(
+            stream = self.client.beta.messages.stream(
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs
             )
         else:
-            response = self.client.messages.create(**kwargs)
+            stream = self.client.messages.stream(**kwargs)
+        with stream as s:
+            response = s.get_final_message()
         log.info(
             "Claude %s: %s in / %s out tokens, stop=%s",
             response.model, response.usage.input_tokens, response.usage.output_tokens, response.stop_reason,

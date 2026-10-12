@@ -334,12 +334,22 @@ class FakeAnthropic:
             content=[SimpleNamespace(type="text", text=text)],
         )
 
-        def create(**kwargs):
-            self.kwargs = kwargs
-            return response
+        class Stream:
+            def __enter__(self):
+                return self
 
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=create))
-        self.messages = SimpleNamespace(create=create)
+            def __exit__(self, *exc):
+                return False
+
+            def get_final_message(self):
+                return response
+
+        def stream(**kwargs):
+            self.kwargs = kwargs
+            return Stream()
+
+        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=stream))
+        self.messages = SimpleNamespace(stream=stream)
 
 
 def test_claude_call_uses_settings_model_schema_and_fallback(settings):
