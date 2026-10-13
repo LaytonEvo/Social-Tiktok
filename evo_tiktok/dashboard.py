@@ -49,6 +49,8 @@ def _when(cron: str | None) -> str:
     if not cron:
         return ""
     minute, hour, _, _, dow = cron.split()[:5]
+    if hour == "*":
+        return f"Hourly at :{int(minute):02d}"
     return f"{DAYS.get(dow.upper(), dow)} {int(hour):02d}:{int(minute):02d} UK"
 
 

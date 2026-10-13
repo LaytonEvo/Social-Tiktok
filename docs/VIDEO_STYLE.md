@@ -2,18 +2,17 @@
 
 How every Evo TikTok video looks and sounds, filmed or AI-made. The script rules
 are in `docs/CONTENT_RULES.md`; this file covers the finished video. Agreed with
-Layton on 13 October 2026 from the shoe pilot (v4).
+Layton on 13 October 2026 from the shoe, Size Roulette and trolley pilots.
 
-## Status of AI-made video
+## AI-made video and approval
 
-AI footage and AI voiceover are a **pilot** that Layton approved for testing. The
-automated jobs still follow guardrail 4 in `CLAUDE.md` (real footage and real
-voices) until James and Joems agree to change it. Every AI video:
+AI footage and voiceover are allowed for real products (guardrail 4 in `CLAUDE.md`). The video job
+(`python -m evo_tiktok.video`) makes the drafts; Layton is the only approver. Every AI video:
 
-- is approved by Layton and posted by a person, never automatically;
+- is approved by Layton, version by version, before it can be posted (an edit makes a new version that needs a new approval);
 - is posted with TikTok's "AI-generated" label switched on;
-- never shows an AI-made version of a real person (staff, members, winners)
-  unless that person has agreed in writing.
+- never shows people: products only, made from the product's own photos. An AI version of a real person
+  needs that person's written consent and a change to the job.
 
 ## What each video is for
 

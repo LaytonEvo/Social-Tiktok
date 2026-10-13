@@ -63,6 +63,17 @@ python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.
 - Videos carry no £ prices: the offer is what Clubhouse members save ("members save up to 25%"), checked
   against today's member prices for that video's products. Look and sound of finished videos, including the
   AI video pilot: `docs/VIDEO_STYLE.md`.
+- `evo_tiktok/video.py` (`python -m evo_tiktok.video`, hourly; off until `video.enabled: true`): turns each
+  script into a draft AI video for Layton. Claude plans product-only shots; the voice and on-screen headlines come
+  from the script. The plan is checked against that day's stock and member prices (no £, savings true for the
+  products shown, in stock and buyable, no brand next to a discount, no headline repeating the voice, products
+  only). Then: Charlotte's voiceover via fal.ai, transcribed back and compared with the script; one AI clip per
+  shot from the product's own photos (MiniMax H3 Max), each compared with those photos by Claude; style D
+  overlays and the Clubhouse end card (`evo_tiktok/video_render.py`); format checks. The MP4 goes to the video
+  bucket and its Production row becomes **Ready to review** with a Preview link and anything to look at. Layton
+  sets **Approved**, or writes notes in **Edit request** and sets **Needs changes**: the next run turns the notes
+  into allowed edits, re-checks and makes the next version. A weekly budget and a version limit stop runaway
+  spend. Nothing posts to TikTok.
 - `evo_tiktok/production.py`: live runs add one row per video to the **Production** tab of the dashboard Sheet:
   outline, stock to pull, caption, film-by / edit-by / post-on dates (`production` in settings), owners and a
   Status dropdown (To film, Filmed, Edited, Approved, Posted, Dropped). The team edits Filmer, Editor, Status,

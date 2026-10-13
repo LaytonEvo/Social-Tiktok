@@ -7,9 +7,13 @@ and posted. The team owns the Filmer, Editor, Status, TikTok link and Notes
 columns; re-running a pack keeps them.
 
 Status runs To film -> Filmed -> Edited -> Approved -> Posted (or Dropped).
-Every job run copies the tab's statuses and links back to ``content_log``
-(see ``sync``), so the dashboard, replies and the Friday report see them.
-Nothing here posts to TikTok.
+With AI video on, the video job makes each draft and sets Ready to review,
+with its Version and Preview link. Layton either sets Approved or writes notes
+in Edit request and sets Needs changes, and the next version answers them. An
+approval belongs to the version it was given on (``approved_version``).
+Every job run copies the tab's statuses, links and edit requests back to
+``content_log`` (see ``sync``), so the dashboard, replies and the Friday report
+see them. Nothing here posts to TikTok.
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ STATUSES = [
     ("To film", "planned"),
     ("Filmed", "filmed"),
     ("Edited", "edited"),
+    ("Ready to review", "review"),
+    ("Needs changes", "changes"),
     ("Approved", "approved"),
     ("Posted", "posted"),
     ("Dropped", "dropped"),
@@ -36,10 +42,12 @@ STATUS_TO_LABEL = {status: label for label, status in STATUSES}
 HEADER = [
     "Week", "Video", "Format", "Hook", "Setup", "Shots (film / say / on screen)", "Products to pull",
     "Caption and hashtags", "Film by", "Edit by", "Post on", "Filmer", "Editor", "Status", "TikTok link", "Notes",
+    "Version", "Preview", "Edit request",
 ]
 COL = {name: i for i, name in enumerate(HEADER)}
-TEAM_COLUMNS = ["Filmer", "Editor", "Status", "TikTok link", "Notes"]  # the team edits these; we never overwrite them
-WIDTHS = [90, 50, 120, 220, 260, 520, 320, 300, 90, 90, 90, 90, 90, 100, 220, 220]
+TEAM_COLUMNS = ["Filmer", "Editor", "Status", "TikTok link", "Notes", "Edit request"]  # the team's; never overwritten
+JOB_COLUMNS = ["Version", "Preview"]  # set by the video job; a re-run of the pack keeps them for an unchanged video
+WIDTHS = [90, 50, 120, 220, 260, 520, 320, 300, 90, 90, 90, 90, 90, 110, 220, 220, 70, 220, 320]
 LAST_COL = chr(ord("A") + len(HEADER) - 1)
 
 
@@ -153,7 +161,7 @@ def week_rows(plan, scripts: list[dict], settings: Settings) -> list[list]:
             plan.week_start.isoformat(), n, FORMAT_NAMES.get(s["format"], s["format"]), s["hook"], s["setup"],
             shots_text(s), pull_text(s, plan), f"{s['caption']}\n\n{' '.join(s['hashtags'])}",
             _day(when["film_by"]), _day(when["edit_by"]), _day(when["post_on"]),
-            c.get("filmer") or "", c.get("editor") or "", "To film", "", "",
+            c.get("filmer") or "", c.get("editor") or "", "To film", "", "", "", "", "",
         ])
     return rows
 
@@ -185,8 +193,8 @@ def merge(existing: list[list], new: list[list], week: str) -> list[list]:
         prev = old.pop(_key(row), None)
         if prev:
             same = _norm(_cell(prev, "Hook")) == _norm(_cell(row, "Hook"))
-            for name in TEAM_COLUMNS:
-                if name in ("Status", "TikTok link") and not same:
+            for name in TEAM_COLUMNS + JOB_COLUMNS:
+                if name in ("Status", "TikTok link", "Version", "Preview", "Edit request") and not same:
                     continue
                 if _cell(prev, name):
                     row[COL[name]] = _cell(prev, name)
@@ -286,7 +294,8 @@ def sync(settings: Settings, db, sheets=None) -> int:
         return 0
     current = {
         (str(r[0]), int(r[1])): r[2:]
-        for r in db.query("SELECT week_start, script_no, status, tiktok_post_id, filmer, editor FROM content_log")
+        for r in db.query("SELECT week_start, script_no, status, tiktok_post_id, filmer, editor, edit_request, "
+                          "approved_version FROM content_log")
     }
     changed = 0
     now = datetime.now(timezone.utc).isoformat()
@@ -307,11 +316,14 @@ def sync(settings: Settings, db, sheets=None) -> int:
         if link and not post_id.isdigit():
             log.warning("Production tab: week %s video %s link %r isn't a TikTok video link; ignored", *key, link)
             post_id = ""
-        new = (status, post_id or current[key][1], _cell(row, "Filmer") or None, _cell(row, "Editor") or None)
+        approved = version_number(_cell(row, "Version")) if status == "approved" else None
+        new = (status, post_id or current[key][1], _cell(row, "Filmer") or None, _cell(row, "Editor") or None,
+               _cell(row, "Edit request") or None, approved)
         if tuple(current[key]) == new:
             continue
         db.execute(
-            "UPDATE content_log SET status = ?, tiktok_post_id = ?, filmer = ?, editor = ?, "
+            "UPDATE content_log SET status = ?, tiktok_post_id = ?, filmer = ?, editor = ?, edit_request = ?, "
+            "approved_version = ?, "
             "posted_at = CASE WHEN ? = 'posted' AND posted_at IS NULL THEN ? ELSE posted_at END "
             "WHERE week_start = ? AND script_no = ?",
             (*new, status, now, *key),
@@ -323,8 +335,14 @@ def sync(settings: Settings, db, sheets=None) -> int:
     return changed
 
 
-def mark_posted(settings: Settings, week: str, script_no: int, link: str, sheets=None) -> bool:
-    """Set a video's row to Posted with its link (used by ``python -m evo_tiktok.posts``)."""
+def version_number(text: str) -> int | None:
+    """'v3' -> 3."""
+    digits = "".join(ch for ch in (text or "") if ch.isdigit())
+    return int(digits) if digits else None
+
+
+def set_cells(settings: Settings, week: str, script_no: int, values: dict[str, str], sheets=None) -> bool:
+    """Write named cells on one video's row. False if there's no Sheet or no such row."""
     from .gsheets import Sheets
 
     if not sheet_id(settings):
@@ -336,10 +354,16 @@ def mark_posted(settings: Settings, week: str, script_no: int, link: str, sheets
     rows = sheets.read(sid, f"{tab(settings)}!A:{LAST_COL}")
     for i, row in enumerate(rows[1:], start=2):  # row 1 is the header
         if _key(row) == (week, str(script_no)):
-            a, b = chr(ord("A") + COL["Status"]), chr(ord("A") + COL["TikTok link"])
-            sheets.update(sid, f"{tab(settings)}!{a}{i}:{b}{i}", [["Posted", link]])
+            for name, value in values.items():
+                col = chr(ord("A") + COL[name])
+                sheets.update(sid, f"{tab(settings)}!{col}{i}", [[value]])
             return True
     return False
+
+
+def mark_posted(settings: Settings, week: str, script_no: int, link: str, sheets=None) -> bool:
+    """Set a video's row to Posted with its link (used by ``python -m evo_tiktok.posts``)."""
+    return set_cells(settings, week, script_no, {"Status": "Posted", "TikTok link": link}, sheets)
 
 
 def outline_json(s: dict) -> str:
