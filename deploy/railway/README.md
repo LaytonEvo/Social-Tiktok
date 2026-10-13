@@ -11,6 +11,7 @@ policy (`NEVER`) are set on the service itself:
 | scripts | `python -m evo_tiktok.migrate && python -m evo_tiktok.scripts` | 07:00 Monday | `0 6,7 * * 1` |
 | replies | `python -m evo_tiktok.migrate && python -m evo_tiktok.replies` | 08:00 daily | `0 7,8 * * *` |
 | report | `python -m evo_tiktok.migrate && python -m evo_tiktok.report` | 15:00 Friday | `0 14,15 * * 5` |
+| video | `python -m evo_tiktok.migrate && python -m evo_tiktok.video` | hourly, :20 | `20 * * * *` |
 
 Railway cron runs in UTC and the UK moves between GMT and BST, so each service
 fires at both candidate UTC hours. With `EVO_SCHEDULED=1` set on the service,
@@ -31,6 +32,17 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
 - `config/settings.yaml` isn't committed. Until it is provided on the host, jobs
   fall back to `config/settings.example.yaml` and log a warning. To use a file
   elsewhere, set `EVO_SETTINGS` to its path.
+
+## Video service (AI drafts)
+
+The video job does nothing until `video.enabled: true` in settings. It runs hourly (no `EVO_SCHEDULED` needed):
+the first run after Monday's pack makes the week's drafts, and later runs answer Layton's edit requests.
+
+Variables: `DATABASE_URL` (reference), `ANTHROPIC_API_KEY`, `FAL_KEY`, the Google sign-in and
+`DASHBOARD_SHEET_ID` (the Production tab), and the video bucket. Create a Railway bucket in the project and
+reference its credentials on the service as `VIDEO_BUCKET`, `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY` and `AWS_DEFAULT_REGION`. Preview links are pre-signed and last 7 days.
+ffmpeg comes with the `imageio-ffmpeg` package, so the image needs no extra system packages.
 
 ## Reply queue sheet (replies job)
 

@@ -7,6 +7,7 @@ models:
   scripts: claude-sonnet-5-5
   replies: claude-haiku-4-5-20251001
   report: claude-sonnet-5-5
+  video: claude-sonnet-5-5     # shot plans, edit notes and the visual check
 
 schedule:              # UK local time. Railway cron runs in UTC, so each
                        # service fires at both UTC hours and the job skips
@@ -15,6 +16,7 @@ schedule:              # UK local time. Railway cron runs in UTC, so each
   scripts: "0 7 * * MON"
   replies: "0 8 * * *"
   report: "0 15 * * FRI"
+  video: "20 * * * *"    # hourly: first drafts after Monday's pack, then Layton's edits
 
 weekly_mix:            # 7 scripts
   value_comparison: 3
@@ -140,6 +142,20 @@ pilot_gate:
 
 member_prices:
   source: luke_api     # GET members.api_url/api/reporting/member-products (MEMBERS_REPORTING_API_KEY)
+
+video:                 # AI video drafts for Layton to review (docs/VIDEO_STYLE.md)
+  enabled: false        # nothing is made until this is true
+  model: minimax/h3-max/reference-to-video   # fal.ai; clips made from the product's own photos
+  resolution: 768P
+  tts: elevenlabs/tts/eleven-v4
+  voice: Charlotte
+  transcribe: fal-ai/whisper                 # the voice is transcribed back and compared with the script
+  clip_usd_per_second: 0.05
+  estimate_usd_per_video: 1.5
+  weekly_budget_usd: 20                      # stops making videos for the week when reached
+  max_versions: 3                            # versions per video, including edits
+  min_speed: 0.7                             # slowest a clip may play to fill a shot
+  preview_days: 7                            # preview links expire after this
 
 production:            # the Production tab: one row per video, owned by the team
   sheet_id: null        # defaults to the dashboard Sheet (DASHBOARD_SHEET_ID)
