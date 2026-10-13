@@ -114,6 +114,17 @@ def test_voice_and_headlines_come_from_the_script(stock_by_sku):
         video.plan_from_script(FakeLLM({"shots": planned[:2]}), script_row(), stock_by_sku)
 
 
+def test_every_video_ends_on_the_clubhouse_call_to_action():
+    plan = good_plan()
+    plan.shots.pop()  # ends on "Clubhouse members save…", not the call to action
+    video.with_call_to_action(plan)
+    assert len(plan.shots) == 4 and plan.shots[-1].say == video.CTA and plan.shots[-1].skus == ["SPKD-9"]
+    assert video.with_call_to_action(plan).shots == plan.shots  # already ends on it: unchanged
+    full = video.VideoPlan(WEEK, 1, "trolley", "", [shot(f"Tip {n}.") for n in range(6)])
+    video.with_call_to_action(full)
+    assert len(full.shots) == 6 and full.shots[-1].say == "Tip 5. " + video.CTA
+
+
 def test_edit_notes_become_a_revised_plan(lines):
     plan = good_plan()
     revised = [dict(say=s.say, headline=s.headline, kicker=s.kicker, prompt=s.prompt, skus=s.skus, setting=s.setting)
