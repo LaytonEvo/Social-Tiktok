@@ -224,73 +224,23 @@ def pick_giveaway(pool: list[StockLine], stock_by_sku: dict[str, StockLine], cfg
     )
 
 
-def _money(value) -> str:
-    return f"£{Decimal(value):.2f}"
+def _pct(value: float | None) -> str:
+    return f"{int(value)}%" if value else "no member saving"
 
 
 def product_facts(lines: list[StockLine]) -> dict:
-    """What the model may say about one product, all at live website prices."""
-    prices = sorted({line.price for line in lines})
-    was = [line.compare_at_price for line in lines if line.compare_at_price and line.compare_at_price > line.price]
-    member = [line.discount_pct for line in lines if line.in_portal and line.discount_pct]
+    """What the model may say about one product. No prices: videos quote what
+    Clubhouse members save, as a whole percent rounded down."""
+    saving = [line.member_saving_pct for line in lines if line.member_saving_pct]
     first = lines[0]
     return {
         "product": first.product_title,
         "brand": first.vendor,
         "model": base_model(first.product_title),
         "category": first.category,
-        "live_price": _money(prices[0]) if len(prices) == 1 else f"{_money(prices[0])}–{_money(prices[-1])}",
-        "was_price": _money(max(was)) if was else None,
-        "member_discount_pct": int(max(member)) if member else None,
+        "members_save_pct": int(max(saving)) if saving else None,
+        "selling_points": first.description,
     }
-
-
-def price_ideas(pool: list[StockLine], per_category: int = 3) -> dict:
-    """Price hooks that are true at live website prices, worked out in code.
-
-    gap: two different models (different brands or 20%+ apart) at their live prices.
-    saving: Shopify compare-at price above the live price.
-    tier: a fixed tier (£30/£50/£75/£100/£150/£200) with every item 10%+ below it.
-    """
-    facts = []
-    for lines in by_product(pool).values():
-        f = product_facts(lines)
-        f["_low"] = min(line.price for line in lines)
-        f["_high"] = max(line.price for line in lines)
-        f["_was"] = max((line.compare_at_price for line in lines
-                         if line.compare_at_price and line.compare_at_price > line.price), default=None)
-        facts.append(f)
-    by_cat: dict[str, list[dict]] = defaultdict(list)
-    for f in facts:
-        by_cat[f["category"]].append(f)
-    gaps, savings, tiers = [], [], []
-    gap_min = Decimal(str(1 + validators.PRICE_GAP_MIN))
-    margin = Decimal(str(1 - validators.TIER_MARGIN))
-    for cat, items in sorted(by_cat.items()):
-        items = sorted(items, key=lambda f: (f["_low"], f["product"]))
-        pairs = [
-            (a, b) for i, a in enumerate(items) for b in items[i + 1:]
-            if a["model"] != b["model"] and b["_low"] >= a["_low"] * gap_min
-        ]
-        pairs.sort(key=lambda ab: (ab[0]["brand"] == ab[1]["brand"], -(ab[1]["_low"] - ab[0]["_low"])))
-        for a, b in pairs[:per_category]:
-            gaps.append({
-                "category": cat,
-                "cheaper": {"product": a["product"], "brand": a["brand"], "price": _money(a["_low"])},
-                "dearer": {"product": b["product"], "brand": b["brand"], "price": _money(b["_low"])},
-                "gap": _money(b["_low"] - a["_low"]),
-            })
-        for f in sorted((f for f in items if f["_was"]), key=lambda f: f["_low"] - f["_was"])[:per_category]:
-            savings.append({"category": cat, "product": f["product"], "brand": f["brand"],
-                            "price": _money(f["_low"]), "was": _money(f["_was"]),
-                            "saving": _money(f["_was"] - f["_low"])})
-        for tier in validators.PRICE_TIERS:
-            fits = [f for f in items if f["_high"] <= tier * margin]
-            if len({f["model"] for f in fits}) >= 2:
-                tiers.append({"category": cat, "tier": f"under £{tier}",
-                              "products": [f["product"] for f in fits][:6]})
-                break
-    return {"gap": gaps, "saving": savings, "tier": tiers}
 
 
 def metrics_note(settings: Settings, history: list[dict]) -> str | None:
@@ -418,7 +368,6 @@ def prompt_values(settings: Settings, plan: Plan, history: list[dict]) -> dict:
         "WEEK_START": plan.week_start.strftime("%A %-d %B %Y"),
         "FORMAT_MIX": ", ".join(f"{n} × {FORMAT_NAMES[f]}" for f, n in plan.mix.items() if n),
         "STOCK_SUMMARY_JSON": json.dumps(summarise_pool(plan.pool, max_products), ensure_ascii=False),
-        "PRICE_IDEAS_JSON": json.dumps(price_ideas(plan.pool), ensure_ascii=False),
         "TROLLEY_STOCK_JSON": json.dumps(summarise_trolleys(plan.trolleys), ensure_ascii=False),
         "ROULETTE_SIZES": ", ".join(f"{s} ({p} pairs)" for s, p in plan.roulette_sizes) or "none this week",
         "GIVEAWAY_PRODUCT": plan.giveaway.product_title if plan.giveaway else "none this week",
@@ -484,6 +433,14 @@ def outline_check(s: dict) -> list[str]:
     return e
 
 
+def repeat_check(s: dict) -> list[str]:
+    """On-screen text adds what the voice doesn't say; it never captions the voiceover."""
+    said = _norm(" ".join([s["hook"], *(shot["say"] for shot in s["shot_list"])]))
+    repeats = [line for line in s["on_screen_text"] if len(_norm(line).split()) >= 2 and _norm(line) in said]
+    return [f"on-screen text repeats the voiceover ('{line}'); show something the voice doesn't say"
+            for line in repeats]
+
+
 def featured_lines(s: dict, plan: Plan) -> list[StockLine]:
     return [plan.stock_by_sku[k] for k in s["featured_skus"] if k in plan.stock_by_sku]
 
@@ -502,7 +459,7 @@ def check_script(s: dict, plan: Plan, settings: Settings, roulette_size: tuple[s
     e: list[str] = []
     for text in [caption + " " + " ".join(s["hashtags"]), *screen, " ".join(screen)]:
         e += validators.brand_price_check(text, settings.restricted_brands, settings.brand_price_window)
-    e += validators.price_claim_check(claims, lines)
+    e += validators.no_pound_check(claims)
     e += validators.member_discount_check(claims, lines)
     e += validators.rrp_check(public, s["featured_skus"], plan.stock_by_sku)
     e += validators.stock_check(s["featured_skus"], plan.stock_by_sku)
@@ -517,7 +474,11 @@ def check_script(s: dict, plan: Plan, settings: Settings, roulette_size: tuple[s
         e.append(f"caption is {len(caption)} characters; max 150")
     if not 3 <= len(s["hashtags"]) <= 5 or not all(h.startswith("#") for h in s["hashtags"]):
         e.append("hashtags need 3–5 tags, each starting with #")
+    e += repeat_check(s)
     # Format rules
+    if fmt in ("value_comparison", "size_roulette") and any(line.member_saving_pct for line in lines) \
+            and not validators.has_saving_claim(claims):
+        e.append("say what Clubhouse members save on these products (e.g. 'members save up to X%')")
     if fmt in CLEARANCE_FORMATS:
         if not s["featured_skus"]:
             e.append("name the featured SKUs")
@@ -584,16 +545,9 @@ def validate_each(scripts: list[dict], plan: Plan, settings: Settings) -> tuple[
     for i, s in enumerate(scripts):
         size = next(roulette, None) if s.get("format") == "size_roulette" else None
         s["roulette_size"] = size[0] if size else None
-        s["price_hook"] = validators.price_hook_type(
-            "\n".join([s["hook"], *s["on_screen_text"], s["caption"]]), featured_lines(s, plan)
-        )
         errors = check_script(s, plan, settings, size)
         if errors:
             per[i] = errors
-    vc_hooks = [s["price_hook"] for s in scripts if s.get("format") == "value_comparison"]
-    if len(vc_hooks) >= 2 and len(set(vc_hooks)) == 1:
-        pack.append(f"all {len(vc_hooks)} value comparisons use the same kind of hook ({vc_hooks[0]}); "
-                    "rotate between a price gap, a saving and a fixed price tier")
     return pack, per
 
 
@@ -645,8 +599,8 @@ def generate(llm: JSONModel, settings: Settings, plan: Plan, history: list[dict]
 
 
 def price_check_rows(scripts: list[dict], plan: Plan) -> list[dict]:
-    """One row per featured product per script: its live price and whether the
-    script's price claims passed."""
+    """One row per featured product per script: what Clubhouse members save on it
+    and whether the script's saving claims passed."""
     rows = []
     for n, s in enumerate(scripts, 1):
         failed = [m for m in s.get("errors", []) if "£" in m or "%" in m]
@@ -657,7 +611,7 @@ def price_check_rows(scripts: list[dict], plan: Plan) -> list[dict]:
                 "script": n, "format": FORMAT_NAMES.get(s["format"], s["format"]), "hook": s["hook"],
                 "product": f"{line.product_title} {line.size or ''}".strip() if line else "(none)",
                 "sku": line.sku if line else "",
-                "live_price": _money(line.price) if line else "",
+                "members_save": _pct(line.member_saving_pct) if line else "",
                 "price_check": result,
                 "kept": "errors" not in s,
             })
@@ -734,8 +688,8 @@ def body(ctx: JobContext) -> None:
     scripts, dropped = generate(ctx.llm or ClaudeJSON(settings, "scripts"), settings, plan, history)
     rows = price_check_rows(scripts + dropped, plan)
     for r in rows:
-        log.info("PRICE CHECK | script %s | %s | %s | %s | %s | %s",
-                 r["script"], r["hook"], r["product"], r["live_price"], r["price_check"],
+        log.info("SAVING CHECK | script %s | %s | %s | %s | %s | %s",
+                 r["script"], r["hook"], r["product"], r["members_save"], r["price_check"],
                  "kept" if r["kept"] else "DROPPED")
     out_dir = ROOT / settings["outputs"].get("pack_dir", "out/packs") / week_start.isoformat()
     md_path, pdf_path = pack.write_pack(out_dir, plan, scripts, dropped, rows, settings)

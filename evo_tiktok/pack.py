@@ -58,7 +58,8 @@ def render_markdown(
         out += [f"**⚠ {plan.metrics_note}**", ""]
     out += [
         "Real footage and real voices only. Nothing here is posted automatically: "
-        "film, check, then schedule by hand. Every £ figure was checked against live website prices.",
+        "film, check, then schedule by hand. Videos carry no £ prices; every 'members save' figure "
+        "was checked against today's Clubhouse member prices.",
         "",
         "- **This week:** " + ", ".join(f"{n} × {FORMAT_NAMES[f]}" for f, n in plan.mix.items() if n),
     ]
@@ -125,11 +126,11 @@ def render_markdown(
             f"**CTA:** {s['cta']}",
         ]
     if rows:
-        out += ["", "## Price checks (live website prices)", "",
-                "| Video | Hook | Product | Live price | Price claims |", "|---|---|---|---|---|"]
+        out += ["", "## Saving checks (Clubhouse member prices)", "",
+                "| Video | Hook | Product | Members save | Saving claims |", "|---|---|---|---|---|"]
         out += [
             f"| {r['script']}{'' if r['kept'] else ' (dropped)'} | {r['hook']} | {r['product']} | "
-            f"{r['live_price']} | {r['price_check']} |"
+            f"{r['members_save']} | {r['price_check']} |"
             for r in rows
         ]
     return "\n".join(out) + "\n"

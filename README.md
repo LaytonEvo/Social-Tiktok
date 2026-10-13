@@ -60,6 +60,9 @@ python -m evo_tiktok.scripts --dry-run --from-jsonl tests/fixtures/shopify_bulk.
   The checks fail a script whose first shot doesn't say the hook word for word, whose shots don't add up to 15–35s,
   or whose on-screen lines aren't each placed on a shot. The pack adds a "Before you film" checklist and a pull
   list of the week's stock grouped by location.
+- Videos carry no £ prices: the offer is what Clubhouse members save ("members save up to 25%"), checked
+  against today's member prices for that video's products. Look and sound of finished videos, including the
+  AI video pilot: `docs/VIDEO_STYLE.md`.
 - `evo_tiktok/production.py`: live runs add one row per video to the **Production** tab of the dashboard Sheet:
   outline, stock to pull, caption, film-by / edit-by / post-on dates (`production` in settings), owners and a
   Status dropdown (To film, Filmed, Edited, Approved, Posted, Dropped). The team edits Filmer, Editor, Status,
