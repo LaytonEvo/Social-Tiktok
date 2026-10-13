@@ -17,7 +17,7 @@ following ``docs/VIDEO_STYLE.md``:
 When Layton sets Needs changes with notes in Edit request, the next run turns
 the notes into a revised plan (only changes the rules allow), checks it again
 and makes the next version. Nothing here posts to TikTok, and the job does
-nothing unless ``video.enabled`` is true.
+nothing unless switched on (``VIDEO_ENABLED=1`` on the service or ``video.enabled`` in settings).
 """
 
 from __future__ import annotations
@@ -91,6 +91,14 @@ CHECK_SCHEMA = {
 
 def cfg(settings: Settings) -> dict:
     return settings.get("video") or {}
+
+
+def enabled(settings: Settings) -> bool:
+    """On when settings say so, or when the service sets VIDEO_ENABLED (1/true/yes); VIDEO_ENABLED=0 forces it off."""
+    flag = (settings.secret("VIDEO_ENABLED", required=False) or "").strip().lower()
+    if flag:
+        return flag in ("1", "true", "yes", "on")
+    return bool(cfg(settings).get("enabled"))
 
 
 # -------------------------------------------------------------------- plans
@@ -528,8 +536,8 @@ def candidates_for_swap(lines: list[StockLine]) -> list[StockLine]:
 def body(ctx: JobContext) -> None:
     settings = ctx.settings
     c = cfg(settings)
-    if not c.get("enabled"):
-        log.info("Video job is off (video.enabled is false): nothing made")
+    if not enabled(settings):
+        log.info("Video job is off (video.enabled is false and VIDEO_ENABLED isn't set): nothing made")
         ctx.summary["disabled"] = True
         return
     read = ctx.read_db()

@@ -345,3 +345,9 @@ def test_approval_belongs_to_the_version_reviewed(job_db):
     production.sync(s, db, sheets)
     assert db.query("SELECT status, approved_version FROM content_log")[0] == ("review", None)
     db.close()
+
+
+def test_service_variable_switches_the_job(settings):
+    on = Settings(settings.data, settings.source, {"VIDEO_ENABLED": "1"})
+    off = Settings(settings.data, settings.source, {"VIDEO_ENABLED": "0"})
+    assert video.enabled(on) and not video.enabled(off) and not video.enabled(settings)
