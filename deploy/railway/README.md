@@ -35,7 +35,7 @@ skips the run that doesn't match. Manual runs (without the flag) always run.
 
 ## Video service (AI drafts)
 
-The video job does nothing until `video.enabled: true` in settings. It runs hourly (no `EVO_SCHEDULED` needed):
+The video job does nothing until it's switched on: set `VIDEO_ENABLED=1` on the service (or `video.enabled: true` in settings); `VIDEO_ENABLED=0` switches it off. It runs hourly (no `EVO_SCHEDULED` needed):
 the first run after Monday's pack makes the week's drafts, and later runs answer Layton's edit requests.
 
 Variables: `DATABASE_URL` (reference), `ANTHROPIC_API_KEY`, `FAL_KEY`, the Google sign-in and
