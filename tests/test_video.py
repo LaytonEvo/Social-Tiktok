@@ -351,3 +351,14 @@ def test_service_variable_switches_the_job(settings):
     on = Settings(settings.data, settings.source, {"VIDEO_ENABLED": "1"})
     off = Settings(settings.data, settings.source, {"VIDEO_ENABLED": "0"})
     assert video.enabled(on) and not video.enabled(off) and not video.enabled(settings)
+
+
+def test_service_variables_reach_the_video_job():
+    from evo_tiktok.config import CONFIG_DIR, load_settings
+
+    env = {"VIDEO_ENABLED": "1", "FAL_KEY": "k", "VIDEO_BUCKET": "videos", "AWS_ENDPOINT_URL": "https://s3",
+           "AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "s", "AWS_DEFAULT_REGION": "auto"}
+    settings = load_settings(CONFIG_DIR / "settings.example.yaml", env=env)
+    for name, value in env.items():
+        assert settings.secret(name, required=False) == value
+    assert video.enabled(settings)
