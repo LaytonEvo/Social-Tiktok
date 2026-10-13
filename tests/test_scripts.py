@@ -1,4 +1,5 @@
 import copy
+from decimal import Decimal
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -31,10 +32,20 @@ def settings(settings):
     return with_giveaway(settings)
 
 
+# Clubhouse member prices for the fixture's featured stock: polo 15%, jacket 25%,
+# shoes 20% off the website price (as Luke's member-products API would give).
+MEMBER_PRICES = {"POLO-M": "29.75", "JKT-L": "52.50", "SHOE-9": "71.96", "SHOE-10": "71.96"}
+
+
 @pytest.fixture
 def lines(settings):
     records = [json.loads(l) for l in FIXTURE.read_text().splitlines() if l.strip()]
-    return stock.build_snapshot(records, settings)[0]
+    out = stock.build_snapshot(records, settings)[0]
+    for line in out:
+        if line.sku in MEMBER_PRICES:
+            line.member_price = Decimal(MEMBER_PRICES[line.sku])
+            line.members_units = line.units_total
+    return out
 
 
 @pytest.fixture
@@ -42,25 +53,41 @@ def plan(settings, lines):
     return scripts.build_plan(settings, lines, [], MONDAY)
 
 
-# The fixture's featured stock: UA polo £35 (was £60), adidas jacket £70 (was £120),
-# adidas Adipower shoes £89.95 (was £149.95) in UK9 and UK10.
+# Value comparisons on the fixture's polo and jacket. "{save}" is filled with what
+# members save on them (up to 25% with member prices; left out when there are none).
 VALUE_COMPARISONS = [
-    {  # price gap
-        "hook": "£35 vs £70. Which would you buy?",
-        "on_screen_text": ["£35 or £70?", "Up to 40% off for members"],
-        "caption": "Polo or jacket? Comment your pick. Members save up to 40%, link in bio.",
+    {
+        "hook": "Cold mornings on the course?",
+        "on_screen_text": ["Two winter layers", "Members save {save}"],
+        "caption": "Two layers for cold rounds. Clubhouse members save {save}, link in bio.",
     },
-    {  # saving (Shopify compare-at)
-        "hook": "A £60 polo for £35?",
-        "on_screen_text": ["Was £60, now £35"],
-        "caption": "Polo or jacket for the cold mornings? Comment your pick, link in bio.",
+    {
+        "hook": "Need a layer that packs away?",
+        "on_screen_text": ["Sizes M and L"],
+        "caption": "Light layers for the bag. Clubhouse members save {save}, link in bio.",
     },
-    {  # fixed tier
-        "hook": "Best layers under £100?",
-        "on_screen_text": ["Golf layers under £100"],
-        "caption": "Two layers, both under £100. Which one? Link in bio.",
+    {
+        "hook": "Upgrade your winter kit?",
+        "on_screen_text": ["Members save {save}"],
+        "caption": "Polo or jacket for the cold? Join the Clubhouse, link in bio.",
     },
 ]
+
+
+def saving_text(lines) -> str | None:
+    """'up to X%' for these products, X rounded down to the nearest 5, or None."""
+    best = max((line.member_saving_pct or 0 for line in lines), default=0)
+    return f"up to {int(best // 5 * 5)}%" if best >= 5 else None
+
+
+def with_saving(s: dict, save: str | None) -> dict:
+    if save:
+        s["on_screen_text"] = [x.replace("{save}", save) for x in s["on_screen_text"]]
+        s["caption"] = s["caption"].replace("{save}", save)
+    else:
+        s["on_screen_text"] = [x for x in s["on_screen_text"] if "{save}" not in x] or ["Winter layers"]
+        s["caption"] = s["caption"].replace(" Clubhouse members save {save},", "")
+    return s
 
 
 def good_scripts(plan) -> list[dict]:
@@ -77,16 +104,19 @@ def good_scripts(plan) -> list[dict]:
             "caption": "Comment your pick, link in bio.",
             "hashtags": ["#golf", "#golfuk", "#golfclothes"],
             "featured_skus": ["POLO-M", "JKT-L"],
-            "cta": "Join the Evo Members Club, link in bio",
+            "cta": "Join the Clubhouse, link in bio",
         }
         if fmt == "value_comparison":
-            s.update(next(comparisons))
+            s.update(copy.deepcopy(next(comparisons)))
+            with_saving(s, saving_text(scripts.featured_lines(s, plan)))
         elif fmt == "size_roulette":
             size, _ = next(sizes)
             skus = [l.sku for l in plan.pool if scripts.size_label(l.size) == size]
+            save = saving_text([plan.stock_by_sku[k] for k in skus])
             s.update(
                 on_screen_text=[f"Size Roulette: {size}", "Members only", "When it's gone, it's gone"],
-                caption=f"Every pair we've got left in {size}. Members only, link in bio.",
+                caption=f"Every pair we've got left in {size}. Members only"
+                        + (f", members save {save}" if save else "") + ", link in bio.",
                 featured_skus=skus,
             )
         elif fmt == "giveaway":
@@ -118,8 +148,8 @@ def outline(s: dict) -> list[dict]:
     while len(shots) < 3:
         shots.append({"seconds": 8, "film": "Wide: both products side by side, hand points to each", "say":
                       "Which one would you pick?", "on_screen": ""})
-    shots.append({"seconds": 6, "film": "Phone screen showing the Members Club page", "say":
-                  "Join the Members Club, link in bio.", "on_screen": ""})
+    shots.append({"seconds": 6, "film": "Phone screen showing the Clubhouse page", "say":
+                  "Join the Clubhouse, link in bio.", "on_screen": ""})
     return shots
 
 
@@ -205,11 +235,9 @@ def test_prompt_has_live_prices_and_ideas_but_no_member_bands(settings, plan, ma
     values = scripts.prompt_values(settings, plan, [])
     prompt = load_prompt("script_generator", values)
     assert "SHOE-9" in prompt.user and "TROLLEY-M5" in prompt.user
-    assert '"live_price": "£89.95"' in prompt.user and '"was_price": "£149.95"' in prompt.user
-    assert "member_price_band" not in prompt.user and "under £90" not in prompt.user
-    ideas = scripts.price_ideas(plan.pool)
-    assert {"gap", "saving", "tier"} <= set(ideas)
-    assert ideas["saving"] and all(i["was"] != i["price"] for i in ideas["saving"])
+    stock_json = prompt.user.split("{", 1)[1].split("Electric trolleys")[0]
+    assert '"members_save_pct": 20' in prompt.user and '"members_save_pct": 25' in prompt.user
+    assert "£" not in stock_json and "live_price" not in prompt.user  # videos quote savings, never prices
     assert TERMS in prompt.user and "Thursday 8 October 2026" in prompt.user
     assert "Free to enter, no purchase needed" in prompt.system  # CONTENT_RULES loaded
     assert "{{" not in prompt.system + prompt.user
@@ -244,11 +272,13 @@ def _break(plan, index, **changes):
         (0, {"featured_skus": ["NOPE"]}, "not in today's stock"),
         (0, {"featured_skus": ["SHOE-LIVE-9"]}, "featured pool"),
         (0, {"caption": "Up to 60% off for members"}, "up to 60%"),
-        # 1: prices must be live website prices (£22.75 would be a member price)
-        (0, {"hook": "Polos for £22.75?"}, "isn't a live website price"),
-        # 2: no auto-rounded caps; fixed tiers only, everything 10% below
-        (2, {"hook": "Best layers under £80?"}, "isn't a fixed price tier"),
-        (2, {"hook": "Best layers under £75?"}, "at least 10% below"),
+        # videos carry no £ prices; the offer is the member saving
+        (0, {"hook": "Polos for £22.75?"}, "No £ prices"),
+        (0, {"caption": "Members save up to 30%, link in bio."}, "up to 30%"),
+        (0, {"on_screen_text": ["Two winter layers"], "caption": "Two layers for cold rounds, link in bio."},
+         "say what Clubhouse members save"),
+        # on-screen text adds to the voice, never captions it
+        (0, {"on_screen_text": ["Which one would you pick?"]}, "repeats the voiceover"),
         # 3: a comparison needs different products, not one product
         (0, {"featured_skus": ["POLO-M"]}, "at least 2 different products"),
         (0, {"featured_skus": ["SHOE-9", "SHOE-10"]}, "colourways"),
@@ -259,8 +289,8 @@ def _break(plan, index, **changes):
         (0, {"setup": "Film the products, then add an AI voiceover"}, "Real footage"),
         # the outline leaves nothing to guess
         (0, {"setup": " "}, "setup must say"),
-        (0, {"hook": "£35 vs £70. Which is better?"}, "say the hook word for word"),
-        (0, {"on_screen_text": ["£35 or £70?", "A line no shot shows"]}, "not placed"),
+        (0, {"hook": "Which layer is better?"}, "say the hook word for word"),
+        (0, {"on_screen_text": ["Two winter layers", "A line no shot shows"]}, "not placed"),
         (0, {"hook": "one two three four five six seven eight nine ten eleven twelve"}, "hook"),
         (0, {"caption": "x" * 151}, "max 150"),
         (3, {"featured_skus": ["SHOE-10"]}, "aren't UK9 footwear"),
@@ -281,19 +311,16 @@ def test_wrong_count_fails(plan, settings):
     assert any("Expected 7 scripts" in e for e in errors)
 
 
-def test_member_discount_is_per_video(plan, settings, make_line):
-    # 7: "up to 35%" needs a product in THAT video at 35%; the polo and jacket get ~42%.
-    ok = scripts.validate_scripts(_break(plan, 0, caption="Up to 40% off for members, link in bio"), plan, settings)
+def test_member_saving_is_per_video(plan, settings):
+    # The polo saves 15% and the jacket 25% against the website price: "up to 25%" is true
+    # for a video with both, "up to 30%" isn't, and the shoes' video can only claim 20%.
+    ok = scripts.validate_scripts(_break(plan, 0, caption="Members save up to 25%, link in bio."), plan, settings)
     assert ok == []
-    bad = scripts.validate_scripts(_break(plan, 0, caption="Up to 45% off for members, link in bio"), plan, settings)
-    assert any("up to 45%" in e for e in bad)
-
-
-def test_value_comparisons_must_rotate_hook_types(plan, settings):
-    pack = good_scripts(plan)
-    for i in (1, 2):
-        pack[i].update(VALUE_COMPARISONS[0])  # all three now price gaps
-    assert any("same kind of hook" in e for e in scripts.validate_scripts(pack, plan, settings))
+    bad = scripts.validate_scripts(_break(plan, 0, caption="Members save up to 30%, link in bio."), plan, settings)
+    assert any("up to 30%" in e for e in bad)
+    shoes = [i for i, s in enumerate(good_scripts(plan)) if s["format"] == "size_roulette"][0]
+    bad = scripts.validate_scripts(_break(plan, shoes, caption="Members only, members save up to 25%."), plan, settings)
+    assert any("up to 25%" in e for e in bad)
 
 
 def test_retry_once_with_errors_then_succeed(plan, settings):
@@ -310,7 +337,7 @@ def test_a_video_that_still_fails_is_dropped_never_shipped(plan, settings):
     bad = {"scripts": _break(plan, 0, hook="Polos for £22.75?")}  # a member price, not the live price
     kept, dropped = scripts.generate(FakeLLM(bad, bad), settings, plan, [])
     assert len(kept) == 6 and len(dropped) == 1
-    assert dropped[0]["hook"] == "Polos for £22.75?" and "live website price" in dropped[0]["errors"][0]
+    assert dropped[0]["hook"] == "Polos for £22.75?" and any("No £ prices" in e for e in dropped[0]["errors"])
     rows = scripts.price_check_rows(kept + dropped, plan)
     assert {r["price_check"][:4] for r in rows if not r["kept"]} == {"FAIL"}
     assert all(r["price_check"] == "pass" for r in rows if r["kept"])
@@ -426,4 +453,4 @@ def test_live_run_logs_planned_scripts_and_posts_to_slack(job):
     md = (tmp / "packs" / "2026-10-05" / "filming_pack.md").read_text()
     assert "- **Size Roulette sizes:** UK9 (4 pairs), UK10 (3 pairs)" in md
     assert "Free to enter, no purchase needed" in md
-    assert "## Price checks (live website prices)" in md and "| pass |" in md
+    assert "## Saving checks (Clubhouse member prices)" in md and "| pass |" in md

@@ -141,7 +141,7 @@ def test_no_draft_contains_a_brand_price(settings, comments, lines, db_with_post
     drafts = replies.build_drafts(pricey, settings, comments, lines, db)
     for d in drafts:
         assert not re.search(r"£\d", d.reply), d.reply
-    assert by_id(drafts)["c3"].reply == "Member prices are in the Evo Members Club — link in bio."
+    assert by_id(drafts)["c3"].reply == "Member prices are in the Clubhouse — link in bio."
 
 
 def test_complaints_are_flagged_never_resolved(settings, comments, lines, db_with_post):

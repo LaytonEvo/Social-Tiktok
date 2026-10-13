@@ -77,8 +77,8 @@ def test_rows_spell_out_the_outline_and_the_stock_to_pull(plan, pack_scripts, se
     rows = production.week_rows(plan, pack_scripts, settings)
     assert len(rows) == 7 and rows[0][:2] == ["2026-10-05", 1]
     shots = rows[0][production.COL["Shots (film / say / on screen)"]]
-    assert shots.startswith("1. 0:00–0:03  FILM: ") and 'SAY: "£35 vs £70. Which would you buy?"' in shots
-    assert "ON SCREEN: £35 or £70?" in shots
+    assert shots.startswith("1. 0:00–0:03  FILM: ") and 'SAY: "Cold mornings on the course?"' in shots
+    assert "ON SCREEN: Two winter layers" in shots
     pull = rows[0][production.COL["Products to pull"]]
     assert "SKU POLO-M" in pull and "Warehouse ×" in pull
     assert rows[0][production.COL["Status"]] == "To film" and rows[0][production.COL["Filmer"]] == "Alex"
@@ -124,7 +124,7 @@ def test_sync_copies_status_owners_and_links_into_content_log(plan, pack_scripts
     assert rows[0][1:3] == ("posted", "7412345678901234567") and rows[0][4]
     assert rows[1][1] == "filmed" and rows[1][3] == "Karin"
     assert rows[2][1] == "planned"
-    assert rows[0][5] == "2026-10-06" and '"say": "£35 vs £70. Which would you buy?"' in rows[0][6]
+    assert rows[0][5] == "2026-10-06" and '"say": "Cold mornings on the course?"' in rows[0][6]
     assert production.sync(sheet_settings, db, sheets) == 0  # nothing new
     db.close()
 
@@ -141,5 +141,5 @@ def test_pack_has_a_week_pull_list_and_timed_shots(plan, pack_scripts, settings)
     md = pack.render_markdown(plan, pack_scripts, settings=settings)
     assert "## Before you film" in md and "Film everything by **Tuesday 6 October**" in md
     assert "**Pull this stock before you start:**" in md and "**Warehouse**" in md
-    assert "**0:00–0:03** Film: Close-up" in md and '**Say:** "£35 vs £70. Which would you buy?"' in md
+    assert "**0:00–0:03** Film: Close-up" in md and '**Say:** "Cold mornings on the course?"' in md
     assert "posts Thursday 8 October" in md

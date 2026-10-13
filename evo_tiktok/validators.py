@@ -192,11 +192,12 @@ def price_claim_check(text: str, lines: Iterable[StockLine]) -> list[str]:
 def member_discount_check(text: str, lines: Iterable[StockLine]) -> list[str]:
     """Fail a member % claim that this video's own featured products don't get.
 
-    "up to X% off" needs at least one featured product at X%; a flat "X% off"
+    The % is what a Clubhouse member saves against today's website price.
+    "up to X%" needs at least one featured product at X%; a flat "X% off"
     (or "X-Y% off") needs every featured product at X% or more.
     """
     lines = list(lines)
-    discounts = [line.discount_pct or 0 for line in lines]
+    discounts = [line.member_saving_pct or 0 for line in lines]
     errors = []
     for m in UP_TO_RE.finditer(text):
         pct = float(m.group(1))
@@ -211,6 +212,19 @@ def member_discount_check(text: str, lines: Iterable[StockLine]) -> list[str]:
         if worst < low - ROUNDING_PCT:
             errors.append(f"'{m.group(0).strip()}' but some products on this video get only {worst:.0f}%")
     return errors
+
+
+def no_pound_check(text: str) -> list[str]:
+    """Videos carry no £ prices: the offer is what Clubhouse members save, as a %."""
+    return [f"No £ prices in videos ('{m.group()}'); say what Clubhouse members save instead"
+            for m in POUND_RE.finditer(text)]
+
+
+SAVING_CLAIM_RE = re.compile(r"\b\d+(?:\.\d+)?\s?%", re.IGNORECASE)
+
+
+def has_saving_claim(text: str) -> bool:
+    return bool(SAVING_CLAIM_RE.search(text))
 
 
 def price_hook_type(text: str, lines: Iterable[StockLine]) -> str:

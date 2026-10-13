@@ -180,3 +180,19 @@ class TestPriceClaims:
         assert member_discount_check("Up to 35% off for members", [big, small]) == []
         assert member_discount_check("Up to 35% off for members", [small])
         assert member_discount_check("35% off for members", [big, small])  # flat claim: every product
+
+
+def test_videos_carry_no_pound_prices():
+    from evo_tiktok.validators import no_pound_check
+
+    assert no_pound_check("Clubhouse members save up to 25%") == []
+    assert no_pound_check("Now just £79.95")
+    assert no_pound_check("£36 a year")  # the membership price belongs on the end card, not in a script
+
+
+def test_member_saving_is_against_todays_website_price(make_line):
+    shoe = make_line("SHOE", price="79.95", rrp="90", member="67.96")  # 15% off £79.95, though 24% off the £90 RRP
+    assert round(shoe.member_saving_pct) == 15
+    assert member_discount_check("Members save up to 15%", [shoe]) == []
+    assert member_discount_check("Members save up to 20%", [shoe])
+    assert make_line("X", price="50", member=None).member_saving_pct is None

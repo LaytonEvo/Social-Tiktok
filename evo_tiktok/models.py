@@ -43,6 +43,7 @@ class StockLine:
     shopify_sku: str = ""
     available_online: bool = True  # published to the Online Store and availableForSale
     url: str | None = None          # product page on evolutiongolf.co.uk
+    description: str | None = None  # start of the product page text: the only source for selling points
 
     def __post_init__(self) -> None:
         self.shopify_sku = self.shopify_sku or self.sku
@@ -90,6 +91,17 @@ class StockLine:
         if rrp is None or rrp <= 0:
             return None
         return float((1 - self.selling_price / rrp) * 100)
+
+    @property
+    def member_saving_pct(self) -> float | None:
+        """What a Clubhouse member saves against the price anyone pays today, in percent.
+
+        This is the figure videos quote ("members save up to 25%"): it never
+        relies on a "was" price, so it holds even when there's no sale on.
+        """
+        if self.member_price is None or self.price <= 0 or self.member_price >= self.price:
+            return None
+        return float((1 - self.member_price / self.price) * 100)
 
     @property
     def members_routed(self) -> bool:
