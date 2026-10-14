@@ -48,4 +48,6 @@ For each script give:
 
 Filming is on a phone, vertical, by people in the shop. Use real hands, real products and real voices; never stock footage, AI video or voiceover tools. Products can be in shot but never use brand logos or campaign images as graphics.
 
+Every script, whatever its format, ends with the last shot saying the CTA: "Join the Clubhouse, link in bio."
+
 Rules: no £ figures anywhere; never put a brand name next to a discount in the caption or on-screen text (the voice may name a brand); one CTA (join the Clubhouse, link in bio); write in British English.

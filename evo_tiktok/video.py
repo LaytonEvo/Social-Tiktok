@@ -48,6 +48,8 @@ from .video_render import Segment, frames, probe, render
 
 log = logging.getLogger(__name__)
 
+CTA = "Join the Clubhouse, link in bio."
+
 PEOPLE_RE = re.compile(
     r"\b(?:people|person|man|men|woman|women|golfers?|players?|hands?|fingers?|faces?|child(?:ren)?|kids?|"
     r"caddie|someone|customer|staff|presenter)\b",
@@ -164,12 +166,31 @@ def plan_from_script(llm: JSONModel, row: dict, stock_by_sku: dict[str, StockLin
     planned = data["shots"]
     if len(planned) != len(shots):
         raise validators.GuardrailError([f"shot plan has {len(planned)} shots for a {len(shots)}-shot script"])
-    return VideoPlan(
+    plan = VideoPlan(
         str(row["week_start"]), int(row["script_no"]), row["format"], row["caption"],
         [Shot(say=s["say"], headline=s["on_screen"], kicker=p["kicker"].strip().upper(), prompt=p["prompt"],
               skus=p["skus"], setting=p["setting"], seconds=float(s.get("seconds") or 4))
          for s, p in zip(shots, planned)],
     )
+    return with_call_to_action(plan)
+
+
+def ends_on_cta(plan: VideoPlan) -> bool:
+    return "join the clubhouse" in _norm(plan.shots[-1].say)
+
+
+def with_call_to_action(plan: VideoPlan) -> VideoPlan:
+    """Every video ends on the Clubhouse end card. Scripts that don't close with the CTA get it as an extra
+    shot over the end card, or added to the last line when the video already has six shots."""
+    if not plan.shots or ends_on_cta(plan):
+        return plan
+    last = plan.shots[-1]
+    if len(plan.shots) < 6:
+        plan.shots.append(Shot(say=CTA, headline="", kicker="MEMBERS ONLY", prompt=last.prompt, skus=list(last.skus),
+                               setting=last.setting, seconds=3))
+    else:
+        last.say = f"{last.say.rstrip()} {CTA}".strip()
+    return plan
 
 
 def edit_plan(llm: JSONModel, plan: VideoPlan, request: str, candidates: list[StockLine]) -> tuple[VideoPlan, str, list[str]]:
@@ -228,7 +249,7 @@ def plan_errors(plan: VideoPlan, stock_by_sku: dict[str, StockLine], settings: S
     everything = "\n".join([voice, *heads, plan.caption])
     e += validators.no_pound_check(everything)
     e += validators.member_discount_check(everything, lines)
-    if plan.shots and "clubhouse" not in plan.shots[-1].say.lower():
+    if plan.shots and not ends_on_cta(plan):
         e.append("the last shot must end with the call to action: join the Clubhouse, link in bio")
     return list(dict.fromkeys(e))
 
@@ -433,8 +454,7 @@ class Maker:
         speech_end = (words[-1][2] if words else probe(voice)["duration"]) + 0.4
         windows = shot_windows(plan, words, speech_end)
         # The call to action plays over the end card, so the last shot needs no footage.
-        last = plan.shots[-1]
-        cta_on_card = "clubhouse" in last.say.lower()
+        cta_on_card = ends_on_cta(plan)
         body_shots = list(enumerate(plan.shots))[:-1] if cta_on_card else list(enumerate(plan.shots))
         spans = [(n, s, windows[n][1] - windows[n][0]) for n, s in body_shots]
         for n, s, d in spans:
