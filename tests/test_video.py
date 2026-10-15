@@ -382,7 +382,7 @@ def test_a_plan_that_breaks_a_rule_is_never_made(job_db, monkeypatch, tmp_path):
 def test_weekly_budget_stops_the_job(job_db, monkeypatch):
     s, url = job_db
     data = copy.deepcopy(s.data)
-    data["video"]["weekly_budget_usd"] = 1
+    data["video"]["weekly_budget_usd"] = 0.5   # below one video's estimate
     s2 = Settings(data=data, source=s.source, env=s.env)
     cells = []
     monkeypatch.setattr(video, "Maker", lambda *a, **k: pytest.fail("over budget"))
@@ -433,3 +433,27 @@ def test_service_variables_reach_the_video_job():
     for name, value in env.items():
         assert settings.secret(name, required=False) == value
     assert video.enabled(settings)
+
+
+def test_only_the_opening_shot_is_ai_video(settings, stock_by_sku, monkeypatch, tmp_path):
+    maker = video.Maker(settings, FakeLLM(), None, None, None, tmp_path)
+    plan = good_plan()
+    voice = tmp_path / "voice.mp3"
+    voice.write_bytes(b"")
+    words = words_for(plan)
+    ai_calls, checks, photos = [], [], []
+    monkeypatch.setattr(maker, "text_problems", lambda p: [])
+    monkeypatch.setattr(maker, "voice", lambda text: (voice, words))
+    monkeypatch.setattr(maker, "transcript_match", lambda v, t: 1.0)
+    monkeypatch.setattr(maker, "clips", lambda spans, stock, fresh=frozenset(): (
+        ai_calls.append([n for n, _, _ in spans]) or {n: tmp_path / f"ai{n}.mp4" for n, _, _ in spans}))
+    monkeypatch.setattr(maker, "photo_clip", lambda n, s, d, stock: photos.append(n) or tmp_path / f"p{n}.mp4")
+    monkeypatch.setattr(maker, "visual_check", lambda clip, s, stock: checks.append(clip) or
+                        {"ok": False, "issues": ["sole differs"]})
+    monkeypatch.setattr(video, "render", lambda segments, voice, out, work, end_seconds: out.write_bytes(b"mp4"))
+    monkeypatch.setattr(video, "probe", lambda p: {"duration": 24.0, "width": 1080, "height": 1920, "audio": True})
+    res = maker.make(plan, stock_by_sku, tmp_path / "out.mp4")
+    assert ai_calls == [[0]]                     # one AI clip, never remade
+    assert photos == [1, 2]                      # the rest from product photos (shot 4 plays over the end card)
+    assert len(checks) == 1 and res.ok
+    assert any("shot 1 (AI)" in f for f in res.flags)

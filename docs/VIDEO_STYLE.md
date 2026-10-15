@@ -45,6 +45,12 @@ No £ prices anywhere, except "£36 a year" on the end card.
   "the shoes must look exactly like the reference photos", "no text, no people, no hands, no extra products".
 - **Shots:** a hero shot of everything featured, one close-up orbit per product, and a wide studio
   shot to close. Slow camera moves only.
+- **AI only where it earns it (cost):** only the opening shot is AI video (`video.ai_shots: 1`). Every
+  other shot is a slow push-in or pull-back over the product's own Shopify photos on a white card,
+  which costs nothing and can't get a product wrong. A shot whose products have no photos falls back
+  to AI. An AI shot the visual check rejects is flagged for Layton rather than remade
+  (`video.regenerate: false`), so nothing is paid for twice. Roughly $0.40 to $0.60 a video; the
+  weekly cap is $10.
 - **Before approving,** compare every product against the real thing: shape, colour, logos, sole.
   Cut any shot where the product is wrong or something odd appears (floating balls, extra laces).
 
