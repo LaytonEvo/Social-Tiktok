@@ -193,8 +193,8 @@ def test_what_to_make():
     assert video.work_to_do(script_row(status="changes", edit_request="More"), dict(done, version=3), 3)[0] == "limit"
     assert video.work_to_do(script_row(status="approved"), latest, 3) is None
     failed = dict(latest, status="failed")
-    assert video.work_to_do(row, failed, 3) == ("make", "")                            # retried...
-    assert video.work_to_do(row, dict(failed, version=3), 3) is None                   # ...up to the limit
+    assert video.work_to_do(row, failed, 3, failed_tries=1) == ("make", "")            # retried...
+    assert video.work_to_do(row, dict(failed, version=3), 3, failed_tries=3) is None   # ...up to the limit
 
 
 # --------------------------------------------------------- safe area / fit
@@ -306,6 +306,29 @@ def test_one_broken_video_is_recorded_and_the_job_carries_on(job_db, monkeypatch
     status, cost = db.query("SELECT status, cost_usd FROM video_version")[0]
     assert status == "failed" and float(cost) == 0.4   # recorded, so the next run doesn't retry it
     assert "ffmpeg failed" in cells[-1][2]["Notes"]
+
+
+class BrokeMaker(FakeMaker):
+    cost = 0.0
+
+    def make(self, plan, stock_by_sku, out):
+        raise video.FalError('fal 403: {"detail":"User is locked. Reason: TOP_UP."}', 403)
+
+
+def test_out_of_fal_credit_waits_for_a_top_up(job_db, monkeypatch):
+    s, url = job_db
+    cells = []
+    monkeypatch.setattr(video, "Maker", BrokeMaker)
+    monkeypatch.setattr(production, "set_cells", lambda st, week, no, values, sheets=None: cells.append((week, no, values)))
+    monkeypatch.setattr(production, "sync", lambda *a, **k: 0)
+    assert video.main(["--week-start", WEEK], llm=FakeLLM(copy.deepcopy(PLANNED)), settings=s) == 0
+    db = Database(url)
+    assert db.query("SELECT COUNT(*) FROM video_version")[0][0] == 0   # nothing recorded: made after a top-up
+    assert "top up" in cells[-1][2]["Notes"]
+
+
+def test_people_check_ignores_the_club_face():
+    assert video.people_in("The driver's club face catches the light, slow orbit.", []) is None
 
 
 def test_live_run_makes_a_draft_for_review_then_answers_edits(job_db, monkeypatch, tmp_path):
