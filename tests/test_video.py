@@ -192,6 +192,9 @@ def test_what_to_make():
     assert video.work_to_do(changes, done, 3) is None                                   # already answered
     assert video.work_to_do(script_row(status="changes", edit_request="More"), dict(done, version=3), 3)[0] == "limit"
     assert video.work_to_do(script_row(status="approved"), latest, 3) is None
+    failed = dict(latest, status="failed")
+    assert video.work_to_do(row, failed, 3) == ("make", "")                            # retried...
+    assert video.work_to_do(row, dict(failed, version=3), 3) is None                   # ...up to the limit
 
 
 # --------------------------------------------------------- safe area / fit
@@ -206,9 +209,23 @@ class SmallFonts:
 def test_text_must_fit_tiktoks_safe_area():
     fonts = SmallFonts()
     ok = video_render.Segment(Path("x"), 0, 3, kicker="MEMBERS SAVE", headline="Up to 25%")
-    long = video_render.Segment(Path("x"), 0, 3, headline="A headline far too long to fit beside TikTok's buttons")
-    assert video_render.check_text_fits(fonts, [ok]) == []
+    two = video_render.Segment(Path("x"), 0, 3, headline="Speed Optimised Face Technology")
+    long = video_render.Segment(Path("x"), 0, 3, headline="A headline far too long to fit beside TikTok's buttons "
+                                                         "even when it is split across two separate lines")
+    assert video_render.check_text_fits(fonts, [ok, two]) == []
+    font, lines = video_render.layout_headline(fonts, two.headline)
+    assert lines == ["Speed Optimised", "Face Technology"]
+    for line in video_render.layout_headline(fonts, "UK9.5 · 13 pairs · members only · winter-ready shoes")[1]:
+        assert not line.startswith("·") and not line.endswith("·")
+    assert video_render.HEAD_Y + 2 * round(font.size * video_render.LINE_GAP) <= video_render.TEXT_BOTTOM
     assert "safe area" in video_render.check_text_fits(fonts, [long])[0]
+
+
+def test_people_words_in_product_names_are_allowed():
+    titles = ["Wilson Staff DYNAPWR Max Driver 10.5°"]
+    assert video.people_in("The Wilson Staff driver on the mat, slow push-in.", titles) is None
+    assert video.people_in("Staff hold the Wilson Staff driver.", titles) == "Staff"
+    assert video.people_in("A golfer swings the driver.", titles) == "golfer"
 
 
 # ---------------------------------------------------------------- the job
@@ -269,6 +286,26 @@ class FakeMaker:
         FakeMaker.made.append(plan)
         return video.Result(ok=True, file=out, checks={"voice_matches_script": 0.98},
                             flags=["shot 2: sole studs differ from the photo"], cost=1.2)
+
+
+class BrokenMaker(FakeMaker):
+    cost = 0.4
+
+    def make(self, plan, stock_by_sku, out):
+        raise RuntimeError("ffmpeg failed while adding overlays")
+
+
+def test_one_broken_video_is_recorded_and_the_job_carries_on(job_db, monkeypatch, tmp_path):
+    s, url = job_db
+    cells = []
+    monkeypatch.setattr(video, "Maker", BrokenMaker)
+    monkeypatch.setattr(production, "set_cells", lambda st, week, no, values, sheets=None: cells.append((week, no, values)))
+    monkeypatch.setattr(production, "sync", lambda *a, **k: 0)
+    assert video.main(["--week-start", WEEK], llm=FakeLLM(copy.deepcopy(PLANNED)), settings=s) == 0
+    db = Database(url)
+    status, cost = db.query("SELECT status, cost_usd FROM video_version")[0]
+    assert status == "failed" and float(cost) == 0.4   # recorded, so the next run doesn't retry it
+    assert "ffmpeg failed" in cells[-1][2]["Notes"]
 
 
 def test_live_run_makes_a_draft_for_review_then_answers_edits(job_db, monkeypatch, tmp_path):

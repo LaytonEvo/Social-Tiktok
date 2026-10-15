@@ -44,7 +44,7 @@ from .llm import ClaudeJSON, JSONModel, load_prompt
 from .models import StockLine
 from .runner import JobContext, run_job
 from .storage import store as make_store
-from .video_render import Segment, frames, probe, render
+from .video_render import Fonts, Segment, check_text_fits, frames, probe, render
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +217,18 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9%]+", " ", (text or "").lower()).strip()
 
 
+def people_in(prompt: str, titles: list[str]) -> str | None:
+    """The first word asking for a person, ignoring ones that are part of a product's name ('Wilson Staff')."""
+    names = " ".join(_norm(t) for t in titles)
+    for m in PEOPLE_RE.finditer(prompt):
+        before = re.findall(r"[\w'-]+", prompt[:m.start()])[-1:]
+        after = re.findall(r"[\w'-]+", prompt[m.end():])[:1]
+        phrases = [f"{w} {m.group()}" for w in before] + [f"{m.group()} {w}" for w in after]
+        if not any(_norm(ph) in names for ph in phrases):
+            return m.group()
+    return None
+
+
 def plan_errors(plan: VideoPlan, stock_by_sku: dict[str, StockLine], settings: Settings,
                 allowed: set[str] | None = None) -> list[str]:
     """Every rule the plan breaks against today's stock and member prices; empty means it can be made."""
@@ -236,8 +248,9 @@ def plan_errors(plan: VideoPlan, stock_by_sku: dict[str, StockLine], settings: S
                 e.append(f"shot {n}: {k} isn't in stock and buyable online today")
             else:
                 lines.append(line)
-        if PEOPLE_RE.search(s.prompt):
-            e.append(f"shot {n} asks for a person ('{PEOPLE_RE.search(s.prompt).group()}'); products only")
+        person = people_in(s.prompt, [stock_by_sku[k].product_title for k in s.skus if k in stock_by_sku])
+        if person:
+            e.append(f"shot {n} asks for a person ('{person}'); products only")
         if s.setting not in SETTINGS_ALLOWED:
             e.append(f"shot {n} setting must be studio or outdoors")
         if len(s.kicker) > 24 or "£" in s.kicker or "%" in s.kicker:
@@ -357,6 +370,11 @@ class Maker:
         self.cost = 0.0
         self._photos: dict[str, list[str]] = {}
 
+    def text_problems(self, plan: VideoPlan) -> list[str]:
+        segments = [Segment(Path("-"), 0, 1, kicker=s.kicker if s.headline else "", headline=s.headline)
+                    for s in plan.shots]
+        return [f"{p}: shorten it in an edit request" for p in check_text_fits(Fonts(), segments)]
+
     # voice ---------------------------------------------------------------
     def voice(self, text: str) -> tuple[Path, list[tuple[str, float, float]]]:
         res = self.fal.run(self.tts_model, {"text": text, "voice": self.voice_name, "language_code": "en",
@@ -443,6 +461,9 @@ class Maker:
     # the whole video -----------------------------------------------------
     def make(self, plan: VideoPlan, stock_by_sku: dict[str, StockLine], out: Path) -> Result:
         res = Result(ok=False)
+        res.errors = self.text_problems(plan)   # before anything is spent
+        if res.errors:
+            return res
         voice, words = self.voice(plan.voice_text)
         match = self.transcript_match(voice, plan.voice_text)
         if match < 0.85:
@@ -524,6 +545,8 @@ def work_to_do(row: dict, latest: dict | None, max_versions: int) -> tuple[str, 
     src = source_hash(row)
     if row["status"] == "planned" and (latest is None or latest["source"] != src):
         return ("make", "")
+    if row["status"] == "planned" and latest["status"] == "failed" and latest["version"] < max_versions:
+        return ("make", "")   # try again (a fresh plan, often fixed code); the version limit stops a loop
     if row["status"] == "changes" and latest and latest["source"] == src:
         notes = (row.get("edit_request") or "").strip()
         if notes and notes != (latest.get("edit_request") or "").strip():
@@ -622,11 +645,17 @@ def body(ctx: JobContext) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             maker = Maker(settings, llm, Fal(settings), make_store(settings), httpx.Client(timeout=60), Path(tmp))
             out = Path(tmp) / f"{week}-{no}-v{version}.mp4"
-            result = maker.make(plan, stock_by_sku, out)
+            try:
+                result = maker.make(plan, stock_by_sku, out)
+            except Exception as exc:   # one broken video mustn't stop the rest of the week's
+                log.exception("Week %s video %s v%d failed", week, no, version)
+                result = Result(ok=False, errors=[f"couldn't make it ({exc})"], cost=maker.cost)
             flags = result.flags + [f"not changed: {r}" for r in refused]
             if not result.ok:
                 record(db, plan, version, source_hash(row), "failed", notes, None, None, result.checks,
                        result.errors, result.cost)
+                log.warning("Week %s video %s v%d failed its checks ($%.2f): %s", week, no, version, result.cost,
+                            result.errors)
                 production.set_cells(settings, week, no, {"Notes": "Video failed its checks: " + "; ".join(result.errors)})
                 continue
             key = f"videos/{week}/{no}/v{version}.mp4"
@@ -641,6 +670,7 @@ def body(ctx: JobContext) -> None:
             "Check: " + "; ".join(flags) if flags else "All checks passed.")
         production.set_cells(settings, week, no, {"Status": "Ready to review", "Version": f"v{version}",
                                                   "Preview": url, "Notes": note})
+        log.info("Week %s video %s v%d ready for review ($%.2f): %s", week, no, version, result.cost, url)
         made.append({"week": week, "video": no, "version": version, "cost": result.cost, "flags": flags})
     ctx.summary.update(videos=made)
 
