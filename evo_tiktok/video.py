@@ -44,7 +44,7 @@ from .llm import ClaudeJSON, JSONModel, load_prompt
 from .models import StockLine
 from .runner import JobContext, run_job
 from .storage import store as make_store
-from .video_render import Fonts, Segment, check_text_fits, frames, probe, render
+from .video_render import Fonts, Segment, check_text_fits, frames, photo_clip, probe, render
 
 log = logging.getLogger(__name__)
 
@@ -367,6 +367,8 @@ class Maker:
         self.transcriber = c.get("transcribe", "fal-ai/whisper")
         self.clip_usd_per_second = float(c.get("clip_usd_per_second", 0.05))
         self.min_speed = float(c.get("min_speed", 0.7))
+        self.ai_shots = int(c.get("ai_shots", 1))           # the rest are free photo-motion shots
+        self.regenerate = bool(c.get("regenerate", False))  # remake an AI shot the check rejects (costs again)
         self.cost = 0.0
         self._photos: dict[str, list[str]] = {}
 
@@ -440,6 +442,20 @@ class Maker:
             out[n] = path
         return out
 
+    def photo_clip(self, n: int, shot: Shot, seconds: float, stock_by_sku: dict[str, StockLine]) -> Path | None:
+        """A slow move over the products' own photos; None when there are no photos to use."""
+        urls = [u for k in shot.skus for u in self.photos(stock_by_sku[k], 1)]   # one photo per product
+        paths = []
+        for i, url in enumerate(urls[:4]):
+            resp = self.http.get(url, follow_redirects=True)
+            if resp.status_code < 400:
+                path = self.work / f"photo_{n}_{i}.jpg"
+                path.write_bytes(resp.content)
+                paths.append(path)
+        if not paths:
+            return None
+        return photo_clip(paths, seconds + 0.3, self.work / f"photo_{n}.mp4", self.work, push_in=n % 2 == 0)
+
     def visual_check(self, clip: Path, shot: Shot, stock_by_sku: dict[str, StockLine]) -> dict:
         length = probe(clip)["duration"] or 5
         stills = frames(clip, [length * 0.15, length * 0.5, length * 0.85], self.work)
@@ -483,15 +499,25 @@ class Maker:
                 res.errors.append(f"shot {n + 1} runs {d:.1f}s; split it (AI clips are at most 10s)")
         if res.errors:
             return res
-        clips = self.clips(spans, stock_by_sku)
-        checks = {}
-        for n, s, d in spans:
+        # AI video for the opening shot(s) only; the rest move slowly over the real product photos, which cost
+        # nothing and can't get a product wrong.
+        clips, ai_spans = {}, list(spans[:self.ai_shots])
+        for n, s, d in spans[self.ai_shots:]:
+            clip = self.photo_clip(n, s, d, stock_by_sku)
+            if clip is None:
+                ai_spans.append((n, s, d))   # no photos to use: fall back to AI
+            else:
+                clips[n] = clip
+        clips.update(self.clips(ai_spans, stock_by_sku) if ai_spans else {})
+        ai = {n for n, _, _ in ai_spans}
+        checks = {f"shot_{n + 1}": {"ok": True, "source": "product photos"} for n in clips if n not in ai}
+        for n, s, d in ai_spans:
             verdict = self.visual_check(clips[n], s, stock_by_sku)
-            if not verdict["ok"]:   # one more try with a new seed
+            if not verdict["ok"] and self.regenerate:   # one more try with a new seed
                 clips.update(self.clips([(n, s, d)], stock_by_sku, fresh={n}))
                 verdict = self.visual_check(clips[n], s, stock_by_sku)
-                if not verdict["ok"]:
-                    res.flags.append(f"shot {n + 1}: " + "; ".join(verdict["issues"]))
+            if not verdict["ok"]:
+                res.flags.append(f"shot {n + 1} (AI): " + "; ".join(verdict["issues"]))
             checks[f"shot_{n + 1}"] = verdict
         res.checks["visual"] = checks
         segments = []

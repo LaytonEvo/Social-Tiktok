@@ -151,8 +151,10 @@ video:                 # AI video drafts for Layton to review (docs/VIDEO_STYLE.
   voice: Charlotte
   transcribe: fal-ai/whisper                 # the voice is transcribed back and compared with the script
   clip_usd_per_second: 0.05
-  estimate_usd_per_video: 1.5
-  weekly_budget_usd: 20                      # stops making videos for the week when reached
+  ai_shots: 1                                # AI video for the opening shot; the rest move over product photos (free)
+  regenerate: false                          # true: remake an AI shot the visual check rejects (pays twice)
+  estimate_usd_per_video: 0.6
+  weekly_budget_usd: 10                      # stops making videos for the week when reached
   max_versions: 3                            # versions per video, including edits
   min_speed: 0.7                             # slowest a clip may play to fill a shot
   preview_days: 7                            # preview links expire after this

@@ -276,3 +276,46 @@ def frames(path: Path, times: list[float], work: Path, width: int = 512) -> list
                         "-vf", f"scale={width}:-1", str(p)], check=True)
         out.append(p)
     return out
+
+
+PHOTO_BG = (255, 255, 255)   # the white of Shopify product photos, so boxed photos and cut-outs both sit cleanly
+
+
+def photo_still(photos: list[Path], out: Path) -> Path:
+    """The product's own photos laid out on a light 9:16 card, above the text area: one large, two side by side,
+    three or four in a grid. Free to make, and it can't get a product wrong."""
+    canvas = Image.new("RGB", (W, H), PHOTO_BG)
+    imgs = [Image.open(p).convert("RGBA") for p in photos[:4]]   # PNG cut-outs keep their transparency
+    top, bottom = 380, 1250           # below the logo, above the headline
+    cols = 1 if len(imgs) == 1 else 2
+    rows = (len(imgs) + cols - 1) // cols
+    cell_w, cell_h = (W - 2 * 50) // cols, (bottom - top) // rows
+    for i, img in enumerate(imgs):
+        img.thumbnail((cell_w - 20, cell_h - 20), Image.LANCZOS)
+        r, c = divmod(i, cols)
+        x = 50 + c * cell_w + (cell_w - img.width) // 2
+        y = top + r * cell_h + (cell_h - img.height) // 2
+        canvas.paste(img, (x, y), img)
+    # A soft dark band at the top so the white logo reads on a white card.
+    band = Image.new("RGBA", (W, 480), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(band)
+    for y in range(480):
+        bd.line([(0, y), (W, y)], fill=(17, 17, 17, int(235 * min(1, (1 - y / 480) * 1.6) ** 1.3)))
+    canvas = canvas.convert("RGBA")
+    canvas.alpha_composite(band)
+    canvas.convert("RGB").save(out, quality=92)
+    return out
+
+
+def photo_clip(photos: list[Path], seconds: float, out: Path, work: Path, push_in: bool = True) -> Path:
+    """A slow push-in (or pull-back) on the product photos: the free alternative to an AI clip."""
+    still = photo_still(photos, work / f"{out.stem}_still.jpg")
+    frames_n = max(1, round(seconds * FPS))
+    zoom = (f"1+0.06*on/{frames_n}" if push_in else f"1.06-0.06*on/{frames_n}")
+    # Upscaling first keeps zoompan's whole-pixel steps from shimmering.
+    vf = (f"scale={W * 2}:{H * 2},zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+          f":d={frames_n}:s={W}x{H}:fps={FPS},format=yuv420p")
+    subprocess.run([ffmpeg(), "-v", "error", "-y", "-loop", "1", "-i", str(still), "-vf", vf,
+                    "-frames:v", str(frames_n), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)],
+                   check=True)
+    return out
