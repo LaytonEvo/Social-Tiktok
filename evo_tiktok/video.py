@@ -39,7 +39,7 @@ import httpx
 
 from . import production, stock, validators
 from .config import ROOT, Settings
-from .fal import Fal
+from .fal import Fal, FalError
 from .llm import ClaudeJSON, JSONModel, load_prompt
 from .models import StockLine
 from .runner import JobContext, run_job
@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 CTA = "Join the Clubhouse, link in bio."
 
 PEOPLE_RE = re.compile(
-    r"\b(?:people|person|man|men|woman|women|golfers?|players?|hands?|fingers?|faces?|child(?:ren)?|kids?|"
+    r"\b(?:people|person|man|men|woman|women|golfers?|players?|hands?|fingers?|child(?:ren)?|kids?|"
     r"caddie|someone|customer|staff|presenter)\b",
     re.IGNORECASE,
 )
@@ -534,19 +534,26 @@ def latest_version(db, week: str, script_no: int) -> dict | None:
     return dict(zip(cols, rows[0])) if rows else None
 
 
+def failed_tries(db, week: str, script_no: int, source: str) -> int:
+    rows = db.query("SELECT COUNT(*) FROM video_version WHERE week_start = ? AND script_no = ? AND source = ? "
+                    "AND status = 'failed'", (week, script_no, source))
+    return int(rows[0][0] or 0)
+
+
 def spent_this_week(db) -> float:
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     rows = db.query("SELECT COALESCE(SUM(cost_usd), 0) FROM video_version WHERE created_at >= ?", (since,))
     return float(rows[0][0] or 0)
 
 
-def work_to_do(row: dict, latest: dict | None, max_versions: int) -> tuple[str, str] | None:
+def work_to_do(row: dict, latest: dict | None, max_versions: int, failed_tries: int = 0,
+               max_tries: int = 3) -> tuple[str, str] | None:
     """('make', '') for a first draft, ('edit', notes) for a revision, or None."""
     src = source_hash(row)
     if row["status"] == "planned" and (latest is None or latest["source"] != src):
         return ("make", "")
-    if row["status"] == "planned" and latest["status"] == "failed" and latest["version"] < max_versions:
-        return ("make", "")   # try again (a fresh plan, often fixed code); the version limit stops a loop
+    if row["status"] == "planned" and latest["status"] == "failed" and failed_tries < max_tries:
+        return ("make", "")   # try again (a fresh plan, often fixed code); max_tries stops a loop
     if row["status"] == "changes" and latest and latest["source"] == src:
         notes = (row.get("edit_request") or "").strip()
         if notes and notes != (latest.get("edit_request") or "").strip():
@@ -607,7 +614,8 @@ def body(ctx: JobContext) -> None:
     for row in rows:
         week, no = str(row["week_start"]), int(row["script_no"])
         latest = latest_version(read, week, no)
-        todo = work_to_do(row, latest, max_versions)
+        tries = failed_tries(read, week, no, source_hash(row))
+        todo = work_to_do(row, latest, max_versions, tries, int(c.get("max_tries", 3)))
         if todo is None:
             continue
         kind, notes = todo
@@ -647,6 +655,14 @@ def body(ctx: JobContext) -> None:
             out = Path(tmp) / f"{week}-{no}-v{version}.mp4"
             try:
                 result = maker.make(plan, stock_by_sku, out)
+            except FalError as exc:
+                if not exc.out_of_credit:
+                    raise
+                # Nothing about this video is wrong: leave it unrecorded so the next run makes it after a top-up.
+                log.error("fal.ai is out of credit: week %s video %s and any after it wait for a top-up", week, no)
+                production.set_cells(settings, week, no, {"Notes": "Waiting for fal.ai credit: top up and the "
+                                                                   "next hourly run makes it"})
+                break
             except Exception as exc:   # one broken video mustn't stop the rest of the week's
                 log.exception("Week %s video %s v%d failed", week, no, version)
                 result = Result(ok=False, errors=[f"couldn't make it ({exc})"], cost=maker.cost)

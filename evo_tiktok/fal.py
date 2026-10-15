@@ -21,7 +21,15 @@ QUEUE = "https://queue.fal.run"
 
 
 class FalError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def out_of_credit(self) -> bool:
+        """fal locks the account when its balance runs out ('User is locked. Reason: TOP_UP')."""
+        text = str(self).lower()
+        return self.status in (402, 403) and any(w in text for w in ("top_up", "locked", "balance", "credit"))
 
 
 class Fal:
@@ -35,7 +43,7 @@ class Fal:
 
     def _json(self, resp: httpx.Response) -> dict:
         if resp.status_code >= 400:
-            raise FalError(f"fal {resp.status_code}: {resp.text[:300]}")
+            raise FalError(f"fal {resp.status_code}: {resp.text[:300]}", resp.status_code)
         return resp.json()
 
     def submit(self, endpoint: str, body: dict) -> dict:
