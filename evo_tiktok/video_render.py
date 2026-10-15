@@ -28,6 +28,7 @@ X = 70                         # left margin
 SAFE_RIGHT = 900               # TikTok's like/share buttons sit to the right of this
 KICKER_Y, HEAD_Y = 1300, 1348  # above TikTok's caption area (y > 1520)
 HEAD_SIZES = (82, 76, 70, 64, 58)
+TEXT_BOTTOM, LINE_GAP = 1520, 1.12
 YELLOW, WHITE, GREEN = (245, 219, 0), (255, 255, 255), (1, 103, 71)
 END_CARD_SECONDS = 3.1
 ASSETS = ROOT / "assets"
@@ -104,13 +105,32 @@ def _spaced_width(d: ImageDraw.ImageDraw, text: str, font, gap: int = 5) -> floa
     return sum(d.textlength(c, font=font) + gap for c in text) - gap if text else 0
 
 
-def fit_headline(fonts: Fonts, text: str) -> ImageFont.FreeTypeFont:
-    """The largest headline size that keeps the line inside the safe area."""
+def layout_headline(fonts: Fonts, text: str) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+    """The largest size that keeps the headline inside the safe area: one line if it fits, else two lines
+    (split at the most even word break) that still end above TikTok's caption area."""
     d = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    fits = lambda line, size: X + d.textlength(line, font=fonts.heads[size]) <= SAFE_RIGHT  # noqa: E731
     for size in HEAD_SIZES:
-        if X + d.textlength(text, font=fonts.heads[size]) <= SAFE_RIGHT:
-            return fonts.heads[size]
+        if fits(text, size):
+            return fonts.heads[size], [text]
+    words, seps = text.split(), "·|-–—"
+    # Break at a separator first ("UK9.5 · 13 pairs" / "members only"), dropping it; else at the most even space.
+    at_sep = [(" ".join(words[:i]), " ".join(words[i + 1:])) for i in range(1, len(words) - 1) if words[i] in seps]
+    at_space = [(" ".join(words[:i]), " ".join(words[i:])) for i in range(1, len(words))
+                if words[i] not in seps and words[i - 1] not in seps]
+    candidates = sorted(at_sep, key=lambda p: abs(len(p[0]) - len(p[1]))) + \
+        sorted(at_space, key=lambda p: abs(len(p[0]) - len(p[1])))
+    for size in HEAD_SIZES:
+        if HEAD_Y + 2 * round(size * LINE_GAP) > TEXT_BOTTOM:
+            continue
+        for lines in candidates:
+            if all(fits(line, size) for line in lines):
+                return fonts.heads[size], list(lines)
     raise RenderError(f"headline too long for TikTok's safe area: {text!r}")
+
+
+def fit_headline(fonts: Fonts, text: str) -> ImageFont.FreeTypeFont:
+    return layout_headline(fonts, text)[0]
 
 
 def check_text_fits(fonts: Fonts, segments: list[Segment]) -> list[str]:
@@ -166,7 +186,9 @@ class Overlay:
             d.text((x, KICKER_Y + dy), ch, font=self.fonts.kicker, fill=YELLOW)
             x += d.textlength(ch, font=self.fonts.kicker) + 5
         if headline:
-            d.text((X, HEAD_Y + dy), headline, font=fit_headline(self.fonts, headline), fill=WHITE)
+            font, lines = layout_headline(self.fonts, headline)
+            for n, line in enumerate(lines):
+                d.text((X, HEAD_Y + dy + n * round(font.size * LINE_GAP)), line, font=font, fill=WHITE)
         return img
 
     def _end_card(self, t: float) -> Image.Image:
