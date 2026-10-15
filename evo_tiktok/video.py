@@ -633,7 +633,8 @@ def body(ctx: JobContext) -> None:
     since = date.fromisoformat(ctx.args.week_start) if ctx.args.week_start else today - timedelta(days=today.weekday() + 7)
     rows = [r for r in script_rows(read, since) if not ctx.args.script or int(r["script_no"]) == ctx.args.script]
     max_versions = int(c.get("max_versions", 3))
-    budget = float(c.get("weekly_budget_usd", 20))
+    # VIDEO_WEEKLY_BUDGET_USD on the service overrides settings for a one-off, without a code change.
+    budget = float(settings.secret("VIDEO_WEEKLY_BUDGET_USD", required=False) or c.get("weekly_budget_usd", 10))
     est = float(c.get("estimate_usd_per_video", 1.5))
     llm = ctx.llm or ClaudeJSON(settings, "video")
     made = []
