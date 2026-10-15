@@ -390,6 +390,10 @@ def test_weekly_budget_stops_the_job(job_db, monkeypatch):
     monkeypatch.setattr(production, "sync", lambda *a, **k: 0)
     assert video.main(["--week-start", WEEK], llm=FakeLLM(), settings=s2) == 0
     assert "budget" in cells[-1]["Notes"]
+    s3 = Settings(data=data, source=s.source, env={**s.env, "VIDEO_WEEKLY_BUDGET_USD": "0.1"})
+    cells.clear()
+    assert video.main(["--week-start", WEEK], llm=FakeLLM(), settings=s3) == 0   # the service variable wins
+    assert "$0" in cells[-1]["Notes"]
 
 
 # ------------------------------------------------- approvals in the tab
